@@ -9,39 +9,13 @@ class Kernel extends HttpKernel
     /**
      * The application's global HTTP middleware stack.
      *
+     * These middleware are run during every request to your application.
+     *
      * @var array<int, class-string|string>
      */
     protected $middleware = [
-        // ...existing code...
-        \App\Http\Middleware\HandleInertiaRequests::class,
-    ];
-
-    /**
-     * The application's route middleware groups.
-     *
-     * @var array<string, array<int, class-string|string>>
-     */
-    protected $middlewareGroups = [
-        'web' => [
-            // ...existing code...
-            \App\Http\Middleware\HandleInertiaRequests::class,
-        ],
-
-        'api' => [
-            'throttle:api',
-            \Illuminate\Routing\Middleware\SubstituteBindings::class,
-        ],
-    ];
-
-    /**
-     * The application's route middleware.
-     *
-     * @var array<string, class-string|string>
-     */
-    protected $routeMiddleware = [
-        'auth' => \App\Http\Middleware\Authenticate::class,
-        'admin.only' => \App\Http\Middleware\AdminOnly::class,
-        'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        // ...other middleware...
+        // Note: In Laravel 12, middleware is primarily configured in bootstrap/app.php
+        // This property is maintained for compatibility but most configuration
+        // should be done via the bootstrap/app.php withMiddleware() method
     ];
 }

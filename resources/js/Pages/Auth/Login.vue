@@ -38,7 +38,7 @@ const submit = () => {
             {{ status }}
         </div>
 
-        <form @submit.prevent="submit">
+        <form @submit.prevent="submit" class="bg-gray-900 text-gray-100 p-6 rounded-lg shadow-lg">
 
             <div>
                 <InputLabel for="username" value="Username" />
@@ -81,13 +81,6 @@ const submit = () => {
             </div>
 
             <div class="mt-4 flex items-center justify-end">
-                <Link
-                    v-if="canResetPassword"
-                    :href="route('password.request')"
-                    class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                    Forgot your password?
-                </Link>
 
                 <PrimaryButton
                     class="ms-4"

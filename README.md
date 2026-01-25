@@ -1,59 +1,252 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Scryhold - Magic: The Gathering Collection Manager
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A modern web application for managing Magic: The Gathering card collections with integration to the Scryfall API.
 
-## About Laravel
+## Features
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+### Public Pages
+- **Set Library** (`/set-library`) - Browse all MTG sets with search and sort functionality
+- **Card Search** (`/cards/search`) - Search and browse cards (placeholder)
+- **Home** (`/`) - Landing page
+- **About** (`/about`) - Application information (placeholder)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+### Admin Features
+- **Manage Cards** (`/admin/cards`) - CRUD operations for card collection
+  - Modal-based card entry form
+  - Set code selector
+  - Update Set Library from Scryfall API
+- **Manage Locations** (`/admin/locations`) - CRUD operations for storage locations
+- **Dashboard** (`/dashboard`) - Admin overview
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Technology Stack
 
-## Learning Laravel
+- **Backend**: Laravel 12+
+- **Frontend**: Vue 3 + Inertia.js + Vite
+- **Database**: SQLite
+- **API**: Scryfall API (https://scryfall.com/docs/api)
+- **Styling**: Tailwind CSS (Dark Theme)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Requirements
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- PHP 8.2+
+- Composer
+- Node.js 18+ and npm
+- SQLite
 
-## Laravel Sponsors
+## Installation
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd scryhold-2026/scryhold
+   ```
 
-### Premium Partners
+2. **Install PHP dependencies**
+   ```bash
+   composer install
+   ```
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+3. **Install JavaScript dependencies**
+   ```bash
+   npm install
+   ```
 
-## Contributing
+4. **Environment configuration**
+   ```bash
+   cp .env.example .env
+   php artisan key:generate
+   ```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+5. **Database setup**
+   ```bash
+   touch database/database.sqlite
+   php artisan migrate --seed
+   ```
+   This creates an admin user:
+   - Email: `admin@example.com`
+   - Password: `password`
 
-## Code of Conduct
+6. **Create storage symlink**
+   ```bash
+   php artisan storage:link
+   ```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+7. **Build frontend assets**
+   ```bash
+   npm run build
+   ```
 
-## Security Vulnerabilities
+## Development
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+1. **Start the Laravel development server**
+   ```bash
+   php artisan serve
+   ```
+   Server runs at http://127.0.0.1:8000
+
+2. **Build frontend assets (development mode with hot reload)**
+   ```bash
+   npm run dev
+   ```
+
+## Project Structure
+
+```
+scryhold/
+├── app/
+│   ├── Http/
+│   │   ├── Controllers/        # Application controllers
+│   │   │   ├── Admin/          # Admin-only controllers
+│   │   │   └── SetLibraryController.php
+│   │   └── Middleware/         # Custom middleware
+│   └── Models/                 # Eloquent models
+│       ├── User.php
+│       └── MtgSet.php
+├── database/
+│   ├── migrations/             # Database schema migrations
+│   └── seeders/                # Database seeders
+│       └── AdminUserSeeder.php
+├── resources/
+│   ├── js/
+│   │   ├── Components/         # Reusable Vue components
+│   │   ├── Layouts/            # Page layouts
+│   │   │   ├── GuestLayout.vue        # Public pages layout with sidebar
+│   │   │   └── AuthenticatedLayout.vue # Admin pages layout with sidebar
+│   │   └── Pages/              # Inertia.js pages
+│   │       ├── SetLibrary.vue
+│   │       └── Admin/
+│   │           └── Cards/
+│   └── css/                    # Stylesheets
+├── routes/
+│   ├── web.php                 # Web routes
+│   └── auth.php                # Authentication routes
+├── spec/                       # Project specifications
+│   ├── spec-architecture-app.md
+│   ├── spec-architecture-pages.md
+│   ├── spec-page-manage-cards.md
+│   ├── spec-page-set-library.md
+│   ├── spec-schema-data-models.md
+│   └── spec-schema-users.md
+└── storage/
+    └── app/
+        └── public/
+            └── sets/           # MTG set SVG icons (auto-downloaded)
+```
+
+## Key Features
+
+### Sidebar Navigation
+- **Desktop**: Fixed left sidebar (256px) with organized navigation
+- **Mobile**: Hamburger menu with slide-out sidebar
+- **Public Section**: Home, Set Library, Card Search, About
+- **Admin Section**: Dashboard, Manage Cards, Manage Locations
+
+### Set Library Integration
+- Fetches all MTG sets from Scryfall API
+- Downloads and stores set SVG icons locally
+- Displays sets in paginated grid (24 per page)
+- Search by set name
+- Sort by name (A-Z, Z-A) or release date (oldest, newest)
+
+### Admin Card Management
+- Modal-based card entry
+- Integration with Scryfall API for card validation
+- Set code selector
+- Language support (13 languages)
+- Update Set Library with real-time progress log
+
+## Database Schema
+
+### mtg_sets Table
+- `id` - Primary key
+- `set_code` - Unique set identifier (e.g., "NEO", "MH2")
+- `set_name` - Full set name
+- `set_svg_url` - Path to stored SVG icon
+- `set_release_date` - Release date (YYYY-MM-DD)
+- `set_type` - Set type (core, expansion, etc.)
+- `created_at`, `updated_at` - Timestamps
+
+### users Table
+- Laravel default user schema with `username` column added
+- Supports admin role via seeder
+
+## API Integration
+
+### Scryfall API
+- **Base URL**: https://api.scryfall.com
+- **Sets Endpoint**: `/sets` - Fetches all MTG set data
+- **Rate Limit**: 10 requests per second (handled automatically)
+- **Icon Format**: SVG files downloaded and stored locally
+
+## Testing
+
+Run PHPUnit tests:
+```bash
+php artisan test
+```
+
+## Deployment
+
+1. Set `APP_ENV=production` in `.env`
+2. Set `APP_DEBUG=false` in `.env`
+3. Run `php artisan config:cache`
+4. Run `php artisan route:cache`
+5. Run `php artisan view:cache`
+6. Build production assets: `npm run build`
+
+## Middleware
+
+- **AdminOnly**: Restricts routes to admin users only (defined in `bootstrap/app.php`)
+- **Auth**: Standard Laravel authentication
+- **Guest**: Redirects authenticated users away from auth pages
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+This project is open-sourced software licensed under the MIT license.
+
+## GitHub Copilot Integration
+
+This project includes comprehensive GitHub Copilot tooling to accelerate development and maintain code quality through AI-assisted workflows.
+
+### `.github/agents/`
+
+Custom GitHub Copilot agents tailored for this project:
+
+- **`laravel-expert-agent.agent.md`** - World-class Laravel expert specializing in Laravel 12+ applications, Eloquent ORM, Artisan commands, testing, and best practices. Provides guidance on routing, middleware, authentication, and database patterns.
+
+- **`specification.agent.md`** - Generates and updates specification documents for new or existing functionality. Creates AI-ready specifications with clear requirements, constraints, and interfaces structured for effective machine consumption.
+
+### `.github/instructions/`
+
+Project-wide instructions applied automatically during development:
+
+- **`spec-driven-workflow-v1.instructions.md`** - Comprehensive specification-driven workflow enforcing a 6-phase development loop (ANALYZE → DESIGN → IMPLEMENT → VALIDATE → REFLECT → HANDOFF). Ensures requirements are clearly defined, designs are meticulously planned, and implementations are thoroughly documented using EARS notation.
+
+### `.github/prompts/`
+
+Reusable prompt templates for common development tasks:
+
+- **`create-specification.prompt.md`** - Template for creating new specification files with AI-ready formatting, precise requirements, and structured documentation standards.
+
+- **`update-specification.prompt.md`** - Template for updating existing specifications while maintaining consistency and ensuring machine-readable updates.
+
+### `spec/`
+
+Project specifications documenting architecture, schemas, and page requirements:
+
+- **`spec-architecture-app.md`** - Application-level architecture and design patterns
+- **`spec-architecture-pages.md`** - Page layout architecture, sidebar navigation, and responsive design
+- **`spec-page-manage-cards.md`** - Admin card management page specification
+- **`spec-page-set-library.md`** - Set Library page specification with search and sort requirements
+- **`spec-schema-data-models.md`** - Database schema and data model definitions
+- **`spec-schema-users.md`** - User schema and authentication specifications
+
+**Usage**: These specifications follow EARS notation (Easy Approach to Requirements Syntax) and serve as the source of truth for implementation. AI agents reference these documents to ensure consistency and adherence to requirements.
+
+## Acknowledgments
+
+- [Laravel Framework](https://laravel.com)
+- [Inertia.js](https://inertiajs.com)
+- [Vue.js](https://vuejs.org)
+- [Scryfall API](https://scryfall.com/docs/api)
+- [Tailwind CSS](https://tailwindcss.com)

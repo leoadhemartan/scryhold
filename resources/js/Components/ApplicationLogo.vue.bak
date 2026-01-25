@@ -1,0 +1,13 @@
+import { defineComponent, h } from 'vue';
+
+export default defineComponent({
+    name: 'ApplicationLogo',
+    render() {
+        return h('img', {
+            src: require('@/../../spec/images/favicon.png'),
+            alt: 'App Logo',
+            class: this.$attrs.class || '',
+            style: this.$attrs.style || ''
+        });
+    }
+});
