@@ -2,6 +2,7 @@
 
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { Head } from '@inertiajs/vue3';
 import { ref } from 'vue'
 
 const form = ref({
@@ -40,6 +41,7 @@ function submitForm() {
 
 <template>
   <AuthenticatedLayout>
+    <Head title="Add Card" />
     <div class="max-w-lg mx-auto p-4">
       <div class="bg-gray-800 p-6 rounded-lg shadow text-gray-100">
         <h1 class="text-2xl font-bold mb-4">Add Card</h1>

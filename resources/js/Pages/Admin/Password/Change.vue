@@ -1,5 +1,19 @@
+<script setup>
+import { Head, useForm } from '@inertiajs/vue3';
+
+const form = useForm({
+  password: '',
+  password_confirmation: ''
+})
+
+function submit() {
+  form.post('/password/change')
+}
+</script>
+
 <template>
   <div>
+    <Head title="Change Password" />
     <h1>Change Password</h1>
     <form @submit.prevent="submit">
       <div>
@@ -14,16 +28,3 @@
     </form>
   </div>
 </template>
-<script setup>
-import { ref } from 'vue'
-import { useForm } from '@inertiajs/vue3'
-
-const form = useForm({
-  password: '',
-  password_confirmation: ''
-})
-
-function submit() {
-  form.post('/password/change')
-}
-</script>

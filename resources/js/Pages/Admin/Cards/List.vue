@@ -3,6 +3,7 @@
 
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { Head } from '@inertiajs/vue3';
 import { ref } from 'vue'
 import { router } from '@inertiajs/vue3'
 
@@ -26,6 +27,10 @@ const form = ref({
 })
 const errors = ref({})
 const formError = ref('')
+
+// API response for Card Data display
+const apiResponse = ref(null)
+const isLoadingCard = ref(false)
 
 // Placeholder card data
 const cards = ref([
@@ -60,28 +65,21 @@ function openAddModal() {
   form.value = {
     collection_number: '',
     set_code: '',
-    language: ''
+    language: 'en'
   }
   errors.value = {}
   formError.value = ''
+  apiResponse.value = null
 }
 
 function closeAddModal() {
   showAddModal.value = false
 }
 
-function lookupSet() {
-  // TODO: Call backend API to lookup set information
-  if (!form.value.set_code) {
-    alert('Please enter a set code first')
-    return
-  }
-  alert(`Set lookup for: ${form.value.set_code} (API integration pending)`)
-}
-
-function submitAddForm() {
+async function submitAddForm() {
   errors.value = {}
   formError.value = ''
+  apiResponse.value = null
   
   // Frontend validation
   if (!form.value.collection_number.match(/^[\w-]+$/)) {
@@ -97,9 +95,27 @@ function submitAddForm() {
     return
   }
   
-  // TODO: Call backend API to create card
-  alert('Card would be submitted! (API integration pending)')
-  closeAddModal()
+  // Call Scryfall API
+  isLoadingCard.value = true
+  try {
+    // Build API URL: GET /cards/:code/:number(/:lang)
+    const baseUrl = 'https://api.scryfall.com/cards'
+    const url = `${baseUrl}/${form.value.set_code}/${form.value.collection_number}/${form.value.language}`
+    
+    const response = await fetch(url)
+    const data = await response.json()
+    
+    if (!response.ok) {
+      formError.value = data.details || 'Card not found in Scryfall API'
+      apiResponse.value = null
+    } else {
+      apiResponse.value = data
+    }
+  } catch (error) {
+    formError.value = 'Failed to fetch card from Scryfall API: ' + error.message
+  } finally {
+    isLoadingCard.value = false
+  }
 }
 
 function updateSetLibrary() {
@@ -163,6 +179,7 @@ function deleteCard(id) {
 
 <template>
   <AuthenticatedLayout>
+    <Head title="Manage Cards" />
     <div class="max-w-7xl mx-auto p-4">
       <div class="flex justify-between items-center mb-4">
         <h1 class="text-2xl font-bold text-gray-100">Manage Cards</h1>
@@ -174,7 +191,7 @@ function deleteCard(id) {
           >
             {{ isUpdatingLibrary ? 'Updating...' : 'Update Set Library' }}
           </button>
-          <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" @click="openAddModal">Add Card</button>
+          <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" @click="openAddModal">Lookup Card</button>
         </div>
       </div>
       <div class="bg-gray-800 p-4 rounded-lg shadow text-gray-100">
@@ -208,10 +225,10 @@ function deleteCard(id) {
     </div>
 
     <!-- Add Card Modal -->
-    <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" @click.self="closeAddModal">
-      <div class="bg-gray-800 rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 text-gray-100">
+    <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeAddModal">
+      <div class="bg-gray-800 rounded-lg shadow-xl w-full mx-4 p-6 text-gray-100 max-h-[90vh] overflow-y-auto" :class="apiResponse ? 'max-w-4xl' : 'max-w-lg'">
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-2xl font-bold">Add Card</h2>
+          <h2 class="text-2xl font-bold">Lookup Card</h2>
           <button @click="closeAddModal" class="text-gray-400 hover:text-gray-200 text-2xl">&times;</button>
         </div>
         
@@ -230,22 +247,13 @@ function deleteCard(id) {
           
           <div>
             <label class="block font-semibold mb-1">Set Code</label>
-            <div class="flex gap-2">
-              <input 
-                v-model="form.set_code" 
-                type="text" 
-                class="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100" 
-                placeholder="e.g., neo, khm"
-                required 
-              />
-              <button 
-                type="button" 
-                @click="lookupSet" 
-                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition whitespace-nowrap"
-              >
-                Set Code Selector
-              </button>
-            </div>
+            <input 
+              v-model="form.set_code" 
+              type="text" 
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100" 
+              placeholder="e.g., neo, khm"
+              required 
+            />
             <span v-if="errors.set_code" class="text-red-500 text-sm">{{ errors.set_code }}</span>
           </div>
           
@@ -267,14 +275,94 @@ function deleteCard(id) {
           <div v-if="formError" class="text-red-500 text-sm">{{ formError }}</div>
           
           <div class="flex justify-end gap-2 mt-6">
-            <button type="button" @click="closeAddModal" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition">
+            <button type="button" @click="closeAddModal" :disabled="isLoadingCard" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
               Cancel
             </button>
-            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
-              Add Card
+            <button type="submit" :disabled="isLoadingCard" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+              {{ isLoadingCard ? 'Loading...' : 'Lookup Card' }}
             </button>
           </div>
         </form>
+        
+        <!-- Card Data div (expanded when card data is available) -->
+        <div v-if="apiResponse" class="mt-6 pt-6 border-t border-gray-700">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold">Card Data</h3>
+            <button @click="apiResponse = null" class="text-gray-400 hover:text-gray-200">&times;</button>
+          </div>
+          
+          <!-- Single-Faced Card Display -->
+          <div v-if="!apiResponse.card_faces" class="flex flex-col items-center space-y-4 bg-gray-900 p-6 rounded-lg">
+            <h4 class="text-2xl font-bold text-center">{{ apiResponse.name }}</h4>
+            <img v-if="apiResponse.image_uris?.normal" :src="apiResponse.image_uris.normal" :alt="apiResponse.name" class="rounded-lg shadow-lg max-w-sm" />
+            <div class="flex gap-4 text-center">
+              <span class="font-semibold">{{ apiResponse.mana_cost || 'N/A' }}</span>
+              <span>•</span>
+              <span class="font-semibold">{{ apiResponse.type_line || 'N/A' }}</span>
+            </div>
+            <p class="text-gray-300 whitespace-pre-line text-center max-w-2xl">{{ apiResponse.oracle_text }}</p>
+            <p class="text-xs text-gray-500 mt-4">ID: {{ apiResponse.id }}</p>
+          </div>
+          
+          <!-- Multi-Faced Card Display -->
+          <div v-else class="bg-gray-900 p-6 rounded-lg space-y-4">
+            <!-- Main card info -->
+            <div class="text-center mb-6">
+              <h4 class="text-2xl font-bold">{{ apiResponse.name }}</h4>
+              <p class="text-sm text-gray-400 mt-1">{{ apiResponse.layout }}</p>
+            </div>
+            
+            <!-- Shared Card Image (when face images are not available) -->
+            <div v-if="!apiResponse.card_faces[0]?.image_uris && !apiResponse.card_faces[1]?.image_uris && apiResponse.image_uris?.normal" class="flex justify-center mb-6">
+              <img 
+                :src="apiResponse.image_uris.normal" 
+                :alt="apiResponse.name" 
+                class="rounded-lg shadow-lg max-w-sm" 
+                :class="{ 'rotate-90': apiResponse.layout === 'split' }"
+              />
+            </div>
+            
+            <!-- Two columns -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <!-- Left Column (card_faces[0]) -->
+              <div id="left_col" class="flex flex-col items-center space-y-3 bg-gray-800 p-4 rounded-lg">
+                <h5 class="text-xl font-semibold">{{ apiResponse.card_faces[0]?.name || 'N/A' }}</h5>
+                <img 
+                  v-if="apiResponse.card_faces[0]?.image_uris?.normal" 
+                  :src="apiResponse.card_faces[0].image_uris.normal" 
+                  :alt="apiResponse.card_faces[0].name" 
+                  class="rounded-lg shadow-lg max-w-full" 
+                />
+                <div class="flex gap-3 text-sm">
+                  <span class="font-semibold">{{ apiResponse.card_faces[0]?.mana_cost || 'N/A' }}</span>
+                  <span>•</span>
+                  <span class="font-semibold">{{ apiResponse.card_faces[0]?.type_line || 'N/A' }}</span>
+                </div>
+                <p class="text-gray-300 whitespace-pre-line text-sm text-center">{{ apiResponse.card_faces[0]?.oracle_text }}</p>
+              </div>
+              
+              <!-- Right Column (card_faces[1]) -->
+              <div id="right_col" class="flex flex-col items-center space-y-3 bg-gray-800 p-4 rounded-lg">
+                <h5 class="text-xl font-semibold">{{ apiResponse.card_faces[1]?.name || 'N/A' }}</h5>
+                <img 
+                  v-if="apiResponse.card_faces[1]?.image_uris?.normal" 
+                  :src="apiResponse.card_faces[1].image_uris.normal" 
+                  :alt="apiResponse.card_faces[1].name" 
+                  class="rounded-lg shadow-lg max-w-full" 
+                />
+                <div class="flex gap-3 text-sm">
+                  <span class="font-semibold">{{ apiResponse.card_faces[1]?.mana_cost || 'N/A' }}</span>
+                  <span>•</span>
+                  <span class="font-semibold">{{ apiResponse.card_faces[1]?.type_line || 'N/A' }}</span>
+                </div>
+                <p class="text-gray-300 whitespace-pre-line text-sm text-center">{{ apiResponse.card_faces[1]?.oracle_text }}</p>
+              </div>
+            </div>
+            
+            <!-- ID at bottom -->
+            <p class="text-xs text-gray-500 text-center mt-4">ID: {{ apiResponse.id }}</p>
+          </div>
+        </div>
       </div>
     </div>
 
