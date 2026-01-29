@@ -5,18 +5,36 @@ A modern web application for managing Magic: The Gathering card collections with
 ## Features
 
 ### Public Pages
-- **Set Library** (`/set-library`) - Browse all MTG sets with search and sort functionality
-- **Card Search** (`/cards/search`) - Search and browse cards (placeholder)
-- **Home** (`/`) - Landing page
-- **About** (`/about`) - Application information (placeholder)
+- **Set Library** (`/set-library`) – Browse all MTG sets with search and sort
+- **Card Search** (`/cards/search`) – Search and browse cards (placeholder)
+- **Home** (`/`) – Landing page
+- **About** (`/about`) – Application info (placeholder)
 
 ### Admin Features
-- **Manage Cards** (`/admin/cards`) - CRUD operations for card collection
-  - Modal-based card entry form
-  - Set code selector
-  - Update Set Library from Scryfall API
-- **Manage Locations** (`/admin/locations`) - CRUD operations for storage locations
-- **Dashboard** (`/dashboard`) - Admin overview
+- **Dashboard** (`/dashboard`) – Admin overview
+- **Manage Cards** (`/admin/cards`)
+   - Full CRUD for card collection
+   - Modal-based card entry/edit
+   - Set code selector
+   - Scryfall API integration for validation
+   - Update Set Library from Scryfall
+- **Manage Locations** (`/admin/locations`)
+   - Full CRUD for storage locations (Decks, Side Decks, Storage)
+   - Modal-based add/edit forms with conditional fields
+   - Sortable table with columns: Name, Location Type, Deck Type, Card Count, Default, Commander, Side Deck Parent, Actions
+   - Card count column (aggregated from all card instances in location)
+   - Delete confirmation dialog
+   - Side Deck parent selection for eligible decks
+
+### Data Model
+- **Normalized schema**: Cards and Locations linked via `mtg_card_instances` junction table
+- **User roles**: Admin user seeded by default
+
+### Technology
+- **Backend**: Laravel 12+, Eloquent ORM
+- **Frontend**: Vue 3, Inertia.js, Vite, Tailwind CSS (dark theme)
+- **Database**: SQLite
+- **API**: Scryfall API
 
 ## Technology Stack
 

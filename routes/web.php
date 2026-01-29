@@ -29,7 +29,15 @@ Route::middleware(['auth', 'admin.only'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/admin/cards', [AdminCardController::class, 'index'])->name('admin.cards.index');
     Route::post('/admin/cards/update-set-library', [AdminCardController::class, 'updateSetLibrary'])->name('admin.cards.update-set-library');
-    Route::resource('/admin/locations', AdminLocationController::class);
+    Route::resource('/admin/locations', AdminLocationController::class)->names([
+        'index' => 'admin.locations.index',
+        'create' => 'admin.locations.create',
+        'store' => 'admin.locations.store',
+        'show' => 'admin.locations.show',
+        'edit' => 'admin.locations.edit',
+        'update' => 'admin.locations.update',
+        'destroy' => 'admin.locations.destroy',
+    ]);
     Route::get('/password/change', [PasswordController::class, 'showChangeForm'])->name('password.change');
     Route::post('/password/change', [PasswordController::class, 'change'])->name('password.change.post');
 });
