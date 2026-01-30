@@ -3,14 +3,21 @@
 
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
-import { ref } from 'vue'
+import { Head, Link } from '@inertiajs/vue3';
+import { ref, computed } from 'vue'
 import { router } from '@inertiajs/vue3'
+
+// Props
+const props = defineProps({
+  cards: Object, // Paginated data object
+  locations: Array
+})
 
 // Modal state
 const showAddModal = ref(false)
 const showResultsModal = ref(false)
 const isUpdatingLibrary = ref(false)
+const isSavingCard = ref(false)
 
 // Set library results
 const libraryResults = ref({
@@ -23,7 +30,8 @@ const libraryResults = ref({
 const form = ref({
   collection_number: '',
   set_code: '',
-  language: ''
+  language: 'en',
+  location_id: ''
 })
 const errors = ref({})
 const formError = ref('')
@@ -32,11 +40,58 @@ const formError = ref('')
 const apiResponse = ref(null)
 const isLoadingCard = ref(false)
 
-// Placeholder card data
-const cards = ref([
-  { id: 1, collection_number: '123', set_code: 'neo', language: 'en', scryfall_name: 'Jin-Gitaxias, Progress Tyrant' },
-  { id: 2, collection_number: '045a', set_code: 'khm', language: 'ja', scryfall_name: 'Esika, God of the Tree' }
-])
+// Computed property for card image display
+const getCardImage = (card) => {
+  // Multi-faced card with separate face images: show front image
+  if (card.cfl_image_uri) {
+    return `/storage/${card.cfl_image_uri}`
+  }
+  // Single-faced or multi-faced with shared image: show image_uri
+  if (card.image_uri) {
+    return `/storage/${card.image_uri}`
+  }
+  // No image available
+  return null
+}
+
+// Computed property for pagination page numbers
+const pageNumbers = computed(() => {
+  if (!props.cards || !props.cards.last_page) return []
+  
+  const current = props.cards.current_page
+  const last = props.cards.last_page
+  const delta = 2 // Show 2 pages on each side of current page
+  const pages = []
+  
+  // Always show first page
+  pages.push(1)
+  
+  // Calculate range around current page
+  const rangeStart = Math.max(2, current - delta)
+  const rangeEnd = Math.min(last - 1, current + delta)
+  
+  // Add ellipsis after first page if needed
+  if (rangeStart > 2) {
+    pages.push('...')
+  }
+  
+  // Add pages around current
+  for (let i = rangeStart; i <= rangeEnd; i++) {
+    pages.push(i)
+  }
+  
+  // Add ellipsis before last page if needed
+  if (rangeEnd < last - 1) {
+    pages.push('...')
+  }
+  
+  // Always show last page (if more than 1 page)
+  if (last > 1) {
+    pages.push(last)
+  }
+  
+  return pages
+})
 
 // Scryfall language codes
 const languages = [
@@ -65,7 +120,8 @@ function openAddModal() {
   form.value = {
     collection_number: '',
     set_code: '',
-    language: 'en'
+    language: 'en',
+    location_id: props.locations && props.locations.length > 0 ? props.locations[0].id : ''
   }
   errors.value = {}
   formError.value = ''
@@ -171,9 +227,65 @@ function goToEdit(id) {
 
 function deleteCard(id) {
   if (confirm('Are you sure you want to delete this card?')) {
-    // TODO: Call backend API to delete card
-    alert('Delete request would be sent! (API integration pending)')
+    router.delete(`/admin/cards/${id}`, {
+      preserveScroll: true,
+      onSuccess: () => {
+        alert('Card deleted successfully')
+      },
+      onError: (errors) => {
+        console.error('Delete failed:', errors)
+        alert('Failed to delete card. Check console for details.')
+      }
+    })
   }
+}
+
+function saveCardToLibrary() {
+  if (!form.value.location_id) {
+    formError.value = 'Please select a location'
+    return
+  }
+
+  if (!apiResponse.value) {
+    formError.value = 'No card data available to save'
+    return
+  }
+
+  isSavingCard.value = true
+  formError.value = ''
+
+  router.post('/admin/cards', {
+    scryfall_data: apiResponse.value,
+    location_id: form.value.location_id
+  }, {
+    preserveScroll: true,
+    onSuccess: (page) => {
+      isSavingCard.value = false
+      closeAddModal()
+      // Show success message from server response
+      const flash = page.props.flash
+      if (flash && flash.success) {
+        alert(flash.success)
+      } else {
+        alert('Card added to library successfully')
+      }
+    },
+    onError: (errors) => {
+      isSavingCard.value = false
+      console.error('Save failed:', errors)
+      // Display first error message
+      if (errors.message) {
+        formError.value = errors.message
+      } else if (Object.keys(errors).length > 0) {
+        formError.value = Object.values(errors)[0]
+      } else {
+        formError.value = 'Failed to save card. Please try again.'
+      }
+    },
+    onFinish: () => {
+      isSavingCard.value = false
+    }
+  })
 }
 </script>
 
@@ -194,33 +306,136 @@ function deleteCard(id) {
           <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" @click="openAddModal">Lookup Card</button>
         </div>
       </div>
-      <div class="bg-gray-800 p-4 rounded-lg shadow text-gray-100">
-        <table class="table w-full">
-          <thead>
-            <tr class="border-b border-gray-700">
-              <th class="text-left p-2">ID</th>
-              <th class="text-left p-2">Collection #</th>
-              <th class="text-left p-2">Set</th>
-              <th class="text-left p-2">Language</th>
-              <th class="text-left p-2">Scryfall Name</th>
-              <th class="text-left p-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="card in cards" :key="card.id" class="border-b border-gray-700 hover:bg-gray-700">
-              <td class="p-2">{{ card.id }}</td>
-              <td class="p-2">{{ card.collection_number }}</td>
-              <td class="p-2">{{ card.set_code }}</td>
-              <td class="p-2">{{ card.language }}</td>
-              <td class="p-2">{{ card.scryfall_name }}</td>
-              <td class="p-2">
-                <button class="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded mr-2" @click="goToEdit(card.id)">Edit</button>
-                <button class="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded" @click="deleteCard(card.id)">Delete</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="cards.length === 0" class="text-gray-400 mt-4">No cards found.</div>
+
+      <!-- Card Grid Display -->
+      <div class="bg-gray-800 p-6 rounded-lg shadow text-gray-100">
+        <div v-if="props.cards.data && props.cards.data.length > 0" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+          <div 
+            v-for="card in props.cards.data" 
+            :key="card.id" 
+            class="bg-gray-700 rounded-lg overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col"
+          >
+            <!-- Card Image -->
+            <div class="relative aspect-[5/7] bg-gray-900 flex items-center justify-center overflow-hidden">
+              <img 
+                v-if="getCardImage(card)" 
+                :src="getCardImage(card)" 
+                :alt="card.name"
+                class="w-full h-full object-cover"
+                loading="lazy"
+              />
+              <div v-else class="text-gray-500 text-sm p-4 text-center">No Image</div>
+            </div>
+
+            <!-- Card Info -->
+            <div class="p-4 flex-1 flex flex-col">
+              <!-- Card Name -->
+              <h3 class="text-lg font-bold text-center mb-2 line-clamp-2">{{ card.name }}</h3>
+              
+              <!-- Type Line -->
+              <p class="text-xs text-gray-400 text-center mb-3 line-clamp-1">{{ card.type_line || 'N/A' }}</p>
+              
+              <!-- Layout & Language -->
+              <div class="flex justify-center gap-3 text-xs text-gray-400 mb-3">
+                <span>{{ card.layout }}</span>
+                <span>•</span>
+                <span>{{ card.lang }}</span>
+              </div>
+              
+              <!-- Total Quantity -->
+              <div class="text-center mb-3">
+                <div class="text-sm font-semibold text-blue-400">
+                  Total Quantity: {{ card.total_quantity || 0 }}
+                </div>
+              </div>
+              
+              <!-- Location Breakdown -->
+              <div class="flex-1 mb-3">
+                <div v-if="card.locations && card.locations.length > 0" class="space-y-1">
+                  <div v-for="loc in card.locations" :key="loc.location_id" class="text-xs flex justify-between items-center px-2 py-1 bg-gray-800 rounded">
+                    <span class="text-gray-400">{{ loc.location_name }}:</span> 
+                    <span class="text-gray-200 font-semibold">{{ loc.quantity }}</span>
+                  </div>
+                </div>
+                <div v-else class="text-gray-500 text-xs text-center py-2">No instances</div>
+              </div>
+              
+              <!-- Actions -->
+              <div class="mt-auto">
+                <button 
+                  class="w-full px-3 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded transition" 
+                  @click="deleteCard(card.id)"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="text-gray-400 text-center py-8">No cards found.</div>
+
+        <!-- Pagination Controls -->
+        <div v-if="props.cards.data && props.cards.data.length > 0" class="mt-8 flex items-center justify-center gap-2">
+          <!-- Previous Button -->
+          <Link
+            v-if="props.cards.prev_page_url"
+            :href="props.cards.prev_page_url"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition"
+            preserve-scroll
+          >
+            Previous
+          </Link>
+          <button
+            v-else
+            disabled
+            class="px-4 py-2 bg-gray-800 text-gray-500 rounded-lg cursor-not-allowed"
+          >
+            Previous
+          </button>
+
+          <!-- Page Numbers -->
+          <div class="flex items-center gap-2">
+            <template v-for="page in pageNumbers" :key="page">
+              <Link
+                v-if="page !== '...'"
+                :href="`/admin/cards?page=${page}`"
+                :class="[
+                  'px-3 py-2 rounded-lg transition',
+                  page === props.cards.current_page
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'bg-gray-700 hover:bg-gray-600 text-white'
+                ]"
+                preserve-scroll
+              >
+                {{ page }}
+              </Link>
+              <span v-else class="px-2 text-gray-500">...</span>
+            </template>
+          </div>
+
+          <!-- Next Button -->
+          <Link
+            v-if="props.cards.next_page_url"
+            :href="props.cards.next_page_url"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition"
+            preserve-scroll
+          >
+            Next
+          </Link>
+          <button
+            v-else
+            disabled
+            class="px-4 py-2 bg-gray-800 text-gray-500 rounded-lg cursor-not-allowed"
+          >
+            Next
+          </button>
+        </div>
+
+        <!-- Page Info -->
+        <div v-if="props.cards.data && props.cards.data.length > 0" class="mt-4 text-center text-sm text-gray-400">
+          Page {{ props.cards.current_page }} of {{ props.cards.last_page }}
+        </div>
       </div>
     </div>
 
@@ -361,6 +576,31 @@ function deleteCard(id) {
             
             <!-- ID at bottom -->
             <p class="text-xs text-gray-500 text-center mt-4">ID: {{ apiResponse.id }}</p>
+          </div>
+
+          <!-- Location Selector and Add Card Button -->
+          <div class="mt-6 pt-6 border-t border-gray-700 space-y-4">
+            <div>
+              <label class="block font-semibold mb-2">Location</label>
+              <select 
+                v-model="form.location_id" 
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100" 
+                required
+              >
+                <option value="">Select a location</option>
+                <option v-for="location in props.locations" :key="location.id" :value="location.id">
+                  {{ location.name }}
+                </option>
+              </select>
+            </div>
+
+            <button 
+              @click="saveCardToLibrary" 
+              :disabled="isSavingCard || !form.location_id"
+              class="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {{ isSavingCard ? 'Saving...' : 'Add Card To Library' }}
+            </button>
           </div>
         </div>
       </div>

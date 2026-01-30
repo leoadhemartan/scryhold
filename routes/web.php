@@ -28,6 +28,8 @@ Route::get('/set-library', [SetLibraryController::class, 'index'])->name('set-li
 Route::middleware(['auth', 'admin.only'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/admin/cards', [AdminCardController::class, 'index'])->name('admin.cards.index');
+    Route::post('/admin/cards', [AdminCardController::class, 'store'])->name('admin.cards.store');
+    Route::delete('/admin/cards/{id}', [AdminCardController::class, 'destroy'])->name('admin.cards.destroy');
     Route::post('/admin/cards/update-set-library', [AdminCardController::class, 'updateSetLibrary'])->name('admin.cards.update-set-library');
     Route::resource('/admin/locations', AdminLocationController::class)->names([
         'index' => 'admin.locations.index',
