@@ -25,11 +25,26 @@ class CardsController extends Controller
         
         // Transform the paginated data
         $cardsData = $cardsQuery->through(function ($card) {
+            // Extract card face type_lines from scryfall_json if not in columns
+            $cflTypeLine = $card->cfl_type_line;
+            $cfrTypeLine = $card->cfr_type_line;
+            
+            // If card face type_lines are not in columns, try to get from scryfall_json
+            if (!$cflTypeLine && !$cfrTypeLine && $card->scryfall_json) {
+                $scryfallData = is_array($card->scryfall_json) ? $card->scryfall_json : json_decode($card->scryfall_json, true);
+                if (isset($scryfallData['card_faces']) && is_array($scryfallData['card_faces'])) {
+                    $cflTypeLine = $scryfallData['card_faces'][0]['type_line'] ?? null;
+                    $cfrTypeLine = $scryfallData['card_faces'][1]['type_line'] ?? null;
+                }
+            }
+            
             return [
                 'id' => $card->id,
                 'scryfall_id' => $card->scryfall_id,
                 'name' => $card->name,
                 'type_line' => $card->type_line,
+                'cfl_type_line' => $cflTypeLine,
+                'cfr_type_line' => $cfrTypeLine,
                 'layout' => $card->layout,
                 'lang' => $card->lang,
                 'image_uri' => $card->image_uri,

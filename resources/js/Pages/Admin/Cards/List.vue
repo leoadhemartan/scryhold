@@ -54,6 +54,16 @@ const getCardImage = (card) => {
   return null
 }
 
+// Computed property for type_line display with conditional logic
+const getCardTypeLine = (card) => {
+  // If type_line is "N/A", display card face type lines separated by " | "
+  if (card.type_line === 'N/A' && card.cfl_type_line && card.cfr_type_line) {
+    return `${card.cfl_type_line} | ${card.cfr_type_line}`
+  }
+  // Otherwise display the type_line as is
+  return card.type_line || 'N/A'
+}
+
 // Computed property for pagination page numbers
 const pageNumbers = computed(() => {
   if (!props.cards || !props.cards.last_page) return []
@@ -225,21 +235,6 @@ function goToEdit(id) {
   window.location.href = `/admin/cards/${id}/edit`
 }
 
-function deleteCard(id) {
-  if (confirm('Are you sure you want to delete this card?')) {
-    router.delete(`/admin/cards/${id}`, {
-      preserveScroll: true,
-      onSuccess: () => {
-        alert('Card deleted successfully')
-      },
-      onError: (errors) => {
-        console.error('Delete failed:', errors)
-        alert('Failed to delete card. Check console for details.')
-      }
-    })
-  }
-}
-
 function saveCardToLibrary() {
   if (!form.value.location_id) {
     formError.value = 'Please select a location'
@@ -313,10 +308,13 @@ function saveCardToLibrary() {
           <div 
             v-for="card in props.cards.data" 
             :key="card.id" 
-            class="bg-gray-700 rounded-lg overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col"
+            class="bg-gray-700 rounded-lg overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col p-4"
           >
+            <!-- Card Name -->
+            <h3 class="text-lg font-bold text-center mb-3 line-clamp-2">{{ card.name }}</h3>
+            
             <!-- Card Image -->
-            <div class="relative aspect-[5/7] bg-gray-900 flex items-center justify-center overflow-hidden">
+            <div class="relative aspect-[5/7] bg-gray-900 flex items-center justify-center overflow-hidden rounded mb-3">
               <img 
                 v-if="getCardImage(card)" 
                 :src="getCardImage(card)" 
@@ -326,49 +324,56 @@ function saveCardToLibrary() {
               />
               <div v-else class="text-gray-500 text-sm p-4 text-center">No Image</div>
             </div>
-
-            <!-- Card Info -->
-            <div class="p-4 flex-1 flex flex-col">
-              <!-- Card Name -->
-              <h3 class="text-lg font-bold text-center mb-2 line-clamp-2">{{ card.name }}</h3>
-              
-              <!-- Type Line -->
-              <p class="text-xs text-gray-400 text-center mb-3 line-clamp-1">{{ card.type_line || 'N/A' }}</p>
-              
-              <!-- Layout & Language -->
-              <div class="flex justify-center gap-3 text-xs text-gray-400 mb-3">
-                <span>{{ card.layout }}</span>
-                <span>•</span>
-                <span>{{ card.lang }}</span>
-              </div>
-              
-              <!-- Total Quantity -->
-              <div class="text-center mb-3">
-                <div class="text-sm font-semibold text-blue-400">
-                  Total Quantity: {{ card.total_quantity || 0 }}
-                </div>
-              </div>
-              
-              <!-- Location Breakdown -->
-              <div class="flex-1 mb-3">
-                <div v-if="card.locations && card.locations.length > 0" class="space-y-1">
-                  <div v-for="loc in card.locations" :key="loc.location_id" class="text-xs flex justify-between items-center px-2 py-1 bg-gray-800 rounded">
-                    <span class="text-gray-400">{{ loc.location_name }}:</span> 
-                    <span class="text-gray-200 font-semibold">{{ loc.quantity }}</span>
-                  </div>
-                </div>
-                <div v-else class="text-gray-500 text-xs text-center py-2">No instances</div>
-              </div>
-              
-              <!-- Actions -->
-              <div class="mt-auto">
-                <button 
-                  class="w-full px-3 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded transition" 
-                  @click="deleteCard(card.id)"
-                >
-                  Delete
-                </button>
-              </div>
+            
+            <!-- Type Line -->
+            <p class="text-xs text-gray-400 text-center mb-3 line-clamp-2">{{ getCardTypeLine(card) }}</p>
+            
+            <!-- Layout & Language Table -->
+            <table class="w-full text-xs mb-3 border-collapse">
+              <thead>
+                <tr class="border-b border-gray-600">
+                  <th class="py-1 px-2 text-left text-gray-300">Layout</th>
+                  <th class="py-1 px-2 text-left text-gray-300">Language</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="py-1 px-2 text-gray-400">{{ card.layout }}</td>
+                  <td class="py-1 px-2 text-gray-400">{{ card.lang }}</td>
+                </tr>
+              </tbody>
+            </table>
+            
+            <!-- Quantity Table -->
+            <div class="flex-1">
+              <table class="w-full text-xs border-collapse">
+                <thead>
+                  <tr class="border-b border-gray-600">
+                    <th colspan="2" class="py-1 px-2 text-center text-gray-300 font-semibold">Quantity</th>
+                  </tr>
+                  <tr class="border-b border-gray-600">
+                    <th class="py-1 px-2 text-left text-gray-300">Location</th>
+                    <th class="py-1 px-2 text-right text-gray-300">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-if="card.locations && card.locations.length > 0">
+                    <tr v-for="loc in card.locations" :key="loc.location_id" class="border-b border-gray-700">
+                      <td class="py-1 px-2 text-gray-400">{{ loc.location_name }}</td>
+                      <td class="py-1 px-2 text-right text-gray-200 font-semibold">{{ loc.quantity }}</td>
+                    </tr>
+                    <tr class="border-t-2 border-gray-600">
+                      <td class="py-1 px-2 text-gray-300 font-semibold">TOTAL</td>
+                      <td class="py-1 px-2 text-right text-blue-400 font-bold">{{ card.total_quantity || 0 }}</td>
+                    </tr>
+                  </template>
+                  <template v-else>
+                    <tr>
+                      <td colspan="2" class="py-2 text-center text-gray-500">No instances</td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

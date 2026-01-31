@@ -13,11 +13,21 @@ A modern web application for managing Magic: The Gathering card collections with
 ### Admin Features
 - **Dashboard** (`/dashboard`) – Admin overview
 - **Manage Cards** (`/admin/cards`)
-   - Full CRUD for card collection
-   - Modal-based card entry/edit
-   - Set code selector
-   - Scryfall API integration for validation
-   - Update Set Library from Scryfall
+   - Paginated grid view of card collection (18 cards per page)
+   - Card lookup via Scryfall API (collection number, set code, language)
+   - Location-based inventory management with quantity tracking
+   - Visual card display with:
+     - Card name (prominent header)
+     - Card image (front face for multi-faced cards)
+     - Conditional type line display (handles split/transform cards)
+     - Layout and language information table
+     - Quantity breakdown table by location with totals
+   - Smart card instance management:
+     - Auto-increment quantity for duplicate cards in same location
+     - Support for cards across multiple storage locations
+   - Multi-faced card support (split, transform, modal double-faced)
+   - Extracts card face data from Scryfall JSON when needed
+   - Update Set Library from Scryfall with real-time progress tracking
 - **Manage Locations** (`/admin/locations`)
    - Full CRUD for storage locations (Decks, Side Decks, Storage)
    - Modal-based add/edit forms with conditional fields
@@ -28,6 +38,10 @@ A modern web application for managing Magic: The Gathering card collections with
 
 ### Data Model
 - **Normalized schema**: Cards and Locations linked via `mtg_card_instances` junction table
+- **Multi-location support**: Cards can exist in multiple locations with different quantities
+- **Card instance tracking**: Each card-location combination tracks quantity independently
+- **Multi-faced card support**: Handles split, transform, flip, and modal double-faced cards with separate face data storage
+- **Scryfall JSON preservation**: Complete API response stored for data integrity and future parsing
 - **User roles**: Admin user seeded by default
 
 ### Technology
@@ -115,10 +129,15 @@ scryhold/
 │   ├── Http/
 │   │   ├── Controllers/        # Application controllers
 │   │   │   ├── Admin/          # Admin-only controllers
+│   │   │   │   ├── CardsController.php
+│   │   │   │   └── LocationsController.php
 │   │   │   └── SetLibraryController.php
 │   │   └── Middleware/         # Custom middleware
 │   └── Models/                 # Eloquent models
 │       ├── User.php
+│       ├── MtgCard.php
+│       ├── MtgCardInstance.php
+│       ├── MtgLocation.php
 │       └── MtgSet.php
 ├── database/
 │   ├── migrations/             # Database schema migrations
@@ -133,7 +152,13 @@ scryhold/
 │   │   └── Pages/              # Inertia.js pages
 │   │       ├── SetLibrary.vue
 │   │       └── Admin/
-│   │           └── Cards/
+│   │           ├── Cards/
+│   │           │   └── List.vue
+│   │           └── Locations/
+│   │               ├── Index.vue
+│   │               ├── Create.vue
+│   │               ├── Edit.vue
+│   │               └── Show.vue
 │   └── css/                    # Stylesheets
 ├── routes/
 │   ├── web.php                 # Web routes
@@ -142,13 +167,22 @@ scryhold/
 │   ├── spec-architecture-app.md
 │   ├── spec-architecture-pages.md
 │   ├── spec-page-manage-cards.md
+│   ├── spec-page-manage-locations.md
 │   ├── spec-page-set-library.md
 │   ├── spec-schema-data-models.md
-│   └── spec-schema-users.md
+│   ├── spec-schema-mtg-cards.md
+│   ├── spec-schema-mtg-card-instances.md
+│   ├── spec-schema-mtg-locations.md
+│   ├── spec-schema-users.md
+│   ├── spec-single-card-json-parsing.md
+│   ├── spec-split-card-json-parsing.md
+│   └── spec-transform-card-json-parsing.md
 └── storage/
     └── app/
         └── public/
-            └── sets/           # MTG set SVG icons (auto-downloaded)
+            ├── sets/           # MTG set SVG icons (auto-downloaded)
+            ├── front/          # Front face card images
+            └── back/           # Back face card images (for multi-faced cards)
 ```
 
 ## Key Features
@@ -167,13 +201,61 @@ scryhold/
 - Sort by name (A-Z, Z-A) or release date (oldest, newest)
 
 ### Admin Card Management
-- Modal-based card entry
-- Integration with Scryfall API for card validation
-- Set code selector
-- Language support (13 languages)
-- Update Set Library with real-time progress log
+- Modal-based card lookup with Scryfall API integration
+- Supports 17 languages (English, Japanese, Spanish, French, German, etc.)
+- Displays card data with proper handling for:
+  - Single-faced cards
+  - Multi-faced cards (split, transform, flip, modal double-faced)
+  - Shared vs. separate card face images
+  - Rotated display for split cards
+- Location selector for inventory placement
+- Smart quantity management:
+  - Auto-increment for duplicates in same location
+  - Independent quantity tracking per location
+  - Aggregate quantity display across all locations
+- Real-time Set Library updates with progress logging
+- Card grid display features:
+  - Responsive layout (1-6 columns based on screen size)
+  - Card name, image, and conditional type line
+  - Layout/language information table
+  - Detailed quantity breakdown by location
+  - Alphabetically sorted location display
 
 ## Database Schema
+
+### mtg_cards Table
+- `id` - Primary key
+- `scryfall_id` - Unique Scryfall card identifier (UUID)
+- `name` - Card name
+- `layout` - Card layout type (normal, split, transform, etc.)
+- `lang` - Language code (en, ja, etc.)
+- `type_line` - Card type line
+- `mana_cost` - Mana cost string
+- `oracle_text` - Rules text
+- `cfl_name`, `cfl_type_line`, `cfl_mana_cost`, `cfl_oracle_text` - Card face left (front) data
+- `cfr_name`, `cfr_type_line`, `cfr_mana_cost`, `cfr_oracle_text` - Card face right (back) data
+- `image_uri` - Path to card image (single-faced or shared image)
+- `cfl_image_uri` - Path to front face image (multi-faced cards)
+- `cfr_image_uri` - Path to back face image (multi-faced cards)
+- `scryfall_json` - Complete Scryfall API response (JSON)
+- `created_at`, `updated_at` - Timestamps
+
+### mtg_card_instances Table
+- `id` - Primary key
+- `scryfall_id` - Foreign key to mtg_cards
+- `location_id` - Foreign key to mtg_locations
+- `quantity` - Number of copies in this location
+- `created_at`, `updated_at` - Timestamps
+
+### mtg_locations Table
+- `id` - Primary key
+- `name` - Location name
+- `location_type` - Type (deck, side_deck, storage)
+- `deck_type` - Deck format (commander, standard, etc.)
+- `is_default` - Default location flag
+- `commander_id` - Foreign key to commander card (for commander decks)
+- `side_deck_parent_id` - Foreign key to parent deck (for side decks)
+- `created_at`, `updated_at` - Timestamps
 
 ### mtg_sets Table
 - `id` - Primary key
@@ -193,8 +275,11 @@ scryhold/
 ### Scryfall API
 - **Base URL**: https://api.scryfall.com
 - **Sets Endpoint**: `/sets` - Fetches all MTG set data
+- **Cards Endpoint**: `/cards/:set/:number/:lang` - Fetches specific card by set, collector number, and language
 - **Rate Limit**: 10 requests per second (handled automatically)
 - **Icon Format**: SVG files downloaded and stored locally
+- **Card Images**: Downloaded and stored locally in `/storage/app/public/front/` and `/storage/app/public/back/`
+- **Data Preservation**: Complete JSON response stored in database for data integrity
 
 ## Testing
 
