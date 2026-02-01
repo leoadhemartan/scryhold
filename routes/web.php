@@ -29,6 +29,10 @@ Route::middleware(['auth', 'admin.only'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/admin/cards', [AdminCardController::class, 'index'])->name('admin.cards.index');
     Route::post('/admin/cards', [AdminCardController::class, 'store'])->name('admin.cards.store');
+    Route::get('/admin/cards/{id}', [AdminCardController::class, 'show'])->name('admin.cards.show');
+    Route::post('/admin/cards/{id}/update-data', [AdminCardController::class, 'updateCardData'])->name('admin.cards.update-data');
+    Route::post('/admin/cards/{id}/move', [AdminCardController::class, 'moveInstances'])->name('admin.cards.move');
+    Route::post('/admin/cards/{id}/remove', [AdminCardController::class, 'removeInstances'])->name('admin.cards.remove');
     Route::delete('/admin/cards/{id}', [AdminCardController::class, 'destroy'])->name('admin.cards.destroy');
     Route::post('/admin/cards/update-set-library', [AdminCardController::class, 'updateSetLibrary'])->name('admin.cards.update-set-library');
     Route::resource('/admin/locations', AdminLocationController::class)->names([

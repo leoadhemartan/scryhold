@@ -18,39 +18,35 @@ class CardsController extends Controller
 {
     public function index()
     {
-        // Fetch paginated cards from database with their instances
-        $cardsQuery = MtgCard::with(['cardInstances.location'])
+        // Fetch all cards from database with their instances
+        $allCards = MtgCard::with(['cardInstances.location'])
             ->orderBy('created_at', 'desc')
-            ->paginate(18); // 18 cards per page for a 3x6 or 2x9 grid
+            ->get();
         
-        // Transform the paginated data
-        $cardsData = $cardsQuery->through(function ($card) {
-            // Extract card face type_lines from scryfall_json if not in columns
-            $cflTypeLine = $card->cfl_type_line;
-            $cfrTypeLine = $card->cfr_type_line;
-            
-            // If card face type_lines are not in columns, try to get from scryfall_json
-            if (!$cflTypeLine && !$cfrTypeLine && $card->scryfall_json) {
-                $scryfallData = is_array($card->scryfall_json) ? $card->scryfall_json : json_decode($card->scryfall_json, true);
-                if (isset($scryfallData['card_faces']) && is_array($scryfallData['card_faces'])) {
-                    $cflTypeLine = $scryfallData['card_faces'][0]['type_line'] ?? null;
-                    $cfrTypeLine = $scryfallData['card_faces'][1]['type_line'] ?? null;
-                }
-            }
-            
+        // Filter cards to only include those with total quantity > 0
+        $filteredCards = $allCards->filter(function ($card) {
+            return $card->cardInstances->sum('quantity') > 0;
+        });
+        
+        // Manually paginate the filtered results
+        $page = request()->get('page', 1);
+        $perPage = 18;
+        $total = $filteredCards->count();
+        $paginatedCards = $filteredCards->forPage($page, $perPage);
+        
+        // Transform the data
+        $cardsData = $paginatedCards->map(function ($card) {
             return [
                 'id' => $card->id,
                 'scryfall_id' => $card->scryfall_id,
                 'name' => $card->name,
-                'type_line' => $card->type_line,
-                'cfl_type_line' => $cflTypeLine,
-                'cfr_type_line' => $cfrTypeLine,
                 'layout' => $card->layout,
                 'lang' => $card->lang,
                 'image_uri' => $card->image_uri,
                 'cfl_image_uri' => $card->cfl_image_uri,
                 'cfr_image_uri' => $card->cfr_image_uri,
                 'created_at' => $card->created_at,
+                'updated_at' => $card->updated_at,
                 'total_quantity' => $card->cardInstances->sum('quantity'),
                 'locations' => $card->cardInstances->sortBy(function ($instance) {
                     return $instance->location->name ?? '';
@@ -62,16 +58,185 @@ class CardsController extends Controller
                     ];
                 })->values(),
             ];
-        });
+        })->values();
+        
+        // Create pagination data structure
+        $lastPage = (int) ceil($total / $perPage);
+        $paginationData = [
+            'current_page' => (int) $page,
+            'data' => $cardsData,
+            'first_page_url' => url('/admin/cards?page=1'),
+            'from' => ($page - 1) * $perPage + 1,
+            'last_page' => $lastPage,
+            'last_page_url' => url("/admin/cards?page={$lastPage}"),
+            'next_page_url' => $page < $lastPage ? url("/admin/cards?page=" . ($page + 1)) : null,
+            'path' => url('/admin/cards'),
+            'per_page' => $perPage,
+            'prev_page_url' => $page > 1 ? url("/admin/cards?page=" . ($page - 1)) : null,
+            'to' => min($page * $perPage, $total),
+            'total' => $total,
+        ];
         
         // Fetch all locations for the location selector
         $locations = MtgLocation::select('id', 'name')->orderBy('name')->get();
         
         // Render the cards management page with modal
         return Inertia::render('Admin/Cards/List', [
-            'cards' => $cardsData,
+            'cards' => $paginationData,
             'locations' => $locations
         ]);
+    }
+
+    public function show($id)
+    {
+        try {
+            $card = MtgCard::with(['cardInstances.location'])->findOrFail($id);
+            
+            // Prepare both formatted and raw JSON
+            $scryfallData = $card->scryfall_json;
+            
+            // Raw JSON (unformatted, single-line)
+            $rawJson = '';
+            if (is_array($scryfallData)) {
+                $rawJson = json_encode($scryfallData);
+            } elseif (is_string($scryfallData)) {
+                $decoded = json_decode($scryfallData, true);
+                $rawJson = json_encode($decoded);
+            }
+            
+            // Pretty-printed JSON (formatted with indentation)
+            $prettyJson = '';
+            if (is_array($scryfallData)) {
+                $prettyJson = json_encode($scryfallData, JSON_PRETTY_PRINT);
+            } elseif (is_string($scryfallData)) {
+                $decoded = json_decode($scryfallData, true);
+                $prettyJson = json_encode($decoded, JSON_PRETTY_PRINT);
+            }
+            
+            return response()->json([
+                'id' => $card->id,
+                'scryfall_id' => $card->scryfall_id,
+                'name' => $card->name,
+                'layout' => $card->layout,
+                'lang' => $card->lang,
+                'image_uri' => $card->image_uri,
+                'cfl_image_uri' => $card->cfl_image_uri,
+                'cfr_image_uri' => $card->cfr_image_uri,
+                'created_at' => $card->created_at->format('Y-m-d H:i:s'),
+                'updated_at' => $card->updated_at->format('Y-m-d H:i:s'),
+                'scryfall_json' => $prettyJson,
+                'scryfall_json_raw' => $rawJson,
+                'instances' => $card->cardInstances->map(function ($instance) {
+                    return [
+                        'id' => $instance->id,
+                        'location_id' => $instance->location_id,
+                        'location_name' => $instance->location->name ?? 'Unknown',
+                        'quantity' => $instance->quantity,
+                    ];
+                }),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Card not found'
+            ], 404);
+        }
+    }
+
+    public function updateCardData($id)
+    {
+        DB::beginTransaction();
+        
+        try {
+            $card = MtgCard::findOrFail($id);
+            $scryfallId = $card->scryfall_id;
+            
+            // Fetch latest data from Scryfall API
+            $response = Http::timeout(30)->get("https://api.scryfall.com/cards/{$scryfallId}");
+            
+            if (!$response->successful()) {
+                return back()->withErrors(['message' => 'Failed to fetch card data from Scryfall API']);
+            }
+            
+            $scryfallData = $response->json();
+            
+            // Prepare updated card data
+            $cardData = [
+                'name' => $scryfallData['name'] ?? $card->name,
+                'layout' => $scryfallData['layout'] ?? $card->layout,
+                'lang' => $scryfallData['lang'] ?? $card->lang,
+                'scryfall_json' => $scryfallData,
+            ];
+            
+            // Handle image updates
+            $imageResults = $this->processCardImages($scryfallData);
+            
+            // Delete old images if they're being replaced
+            if ($imageResults['image_uri'] && $card->image_uri && $imageResults['image_uri'] !== $card->image_uri) {
+                Storage::disk('public')->delete($card->image_uri);
+            }
+            if ($imageResults['cfl_image_uri'] && $card->cfl_image_uri && $imageResults['cfl_image_uri'] !== $card->cfl_image_uri) {
+                Storage::disk('public')->delete($card->cfl_image_uri);
+            }
+            if ($imageResults['cfr_image_uri'] && $card->cfr_image_uri && $imageResults['cfr_image_uri'] !== $card->cfr_image_uri) {
+                Storage::disk('public')->delete($card->cfr_image_uri);
+            }
+            
+            $cardData = array_merge($cardData, $imageResults);
+            
+            // Process single-faced vs multi-faced cards
+            if (!isset($scryfallData['card_faces']) || empty($scryfallData['card_faces'])) {
+                // Single-faced card
+                $cardData['type_line'] = $scryfallData['type_line'] ?? null;
+                $cardData['mana_cost'] = $scryfallData['mana_cost'] ?? null;
+                $cardData['oracle_text'] = $scryfallData['oracle_text'] ?? null;
+                
+                // Clear multi-faced fields
+                $cardData['cfl_name'] = null;
+                $cardData['cfl_mana_cost'] = null;
+                $cardData['cfl_type_line'] = null;
+                $cardData['cfl_oracle_text'] = null;
+                $cardData['cfr_name'] = null;
+                $cardData['cfr_mana_cost'] = null;
+                $cardData['cfr_type_line'] = null;
+                $cardData['cfr_oracle_text'] = null;
+            } else {
+                // Multi-faced card
+                $faces = $scryfallData['card_faces'];
+                
+                // Clear single-faced fields
+                $cardData['type_line'] = 'N/A';
+                $cardData['mana_cost'] = null;
+                $cardData['oracle_text'] = null;
+                
+                if (isset($faces[0])) {
+                    $cardData['cfl_name'] = $faces[0]['name'] ?? null;
+                    $cardData['cfl_mana_cost'] = $faces[0]['mana_cost'] ?? null;
+                    $cardData['cfl_type_line'] = $faces[0]['type_line'] ?? null;
+                    $cardData['cfl_oracle_text'] = $faces[0]['oracle_text'] ?? null;
+                }
+                
+                if (isset($faces[1])) {
+                    $cardData['cfr_name'] = $faces[1]['name'] ?? null;
+                    $cardData['cfr_mana_cost'] = $faces[1]['mana_cost'] ?? null;
+                    $cardData['cfr_type_line'] = $faces[1]['type_line'] ?? null;
+                    $cardData['cfr_oracle_text'] = $faces[1]['oracle_text'] ?? null;
+                }
+            }
+            
+            // Update the card
+            $card->update($cardData);
+            
+            DB::commit();
+            
+            Log::info("Updated card data from Scryfall: {$scryfallId}");
+            
+            return back()->with('success', 'Card data updated successfully from Scryfall');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error updating card data: ' . $e->getMessage());
+            
+            return back()->withErrors(['message' => 'Failed to update card data: ' . $e->getMessage()]);
+        }
     }
 
     public function updateSetLibrary()
@@ -369,6 +534,125 @@ class CardsController extends Controller
         } catch (\Exception $e) {
             Log::error("Error downloading image: " . $e->getMessage());
             return null;
+        }
+    }
+
+    public function moveInstances(Request $request, $id)
+    {
+        DB::beginTransaction();
+        
+        try {
+            $validated = $request->validate([
+                'quantity' => 'required|integer|min:1',
+                'from_location_id' => 'required|exists:mtg_locations,id',
+                'to_location_id' => 'required|exists:mtg_locations,id|different:from_location_id',
+            ]);
+            
+            $card = MtgCard::findOrFail($id);
+            $scryfallId = $card->scryfall_id;
+            
+            // Get source instance
+            $sourceInstance = MtgCardInstance::where('scryfall_id', $scryfallId)
+                ->where('location_id', $validated['from_location_id'])
+                ->firstOrFail();
+            
+            // Validate quantity
+            if ($sourceInstance->quantity < $validated['quantity']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Not enough cards at source location'
+                ], 422);
+            }
+            
+            // Decrement source
+            $sourceInstance->quantity -= $validated['quantity'];
+            $sourceInstance->save();
+            
+            // Check if destination instance exists
+            $destInstance = MtgCardInstance::where('scryfall_id', $scryfallId)
+                ->where('location_id', $validated['to_location_id'])
+                ->first();
+            
+            if ($destInstance) {
+                // Increment existing destination instance
+                $destInstance->quantity += $validated['quantity'];
+                $destInstance->save();
+            } else {
+                // Create new destination instance
+                MtgCardInstance::create([
+                    'scryfall_id' => $scryfallId,
+                    'location_id' => $validated['to_location_id'],
+                    'quantity' => $validated['quantity'],
+                ]);
+            }
+            
+            // Update card's updated_at timestamp
+            $card->touch();
+            
+            DB::commit();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Card instances moved successfully'
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error moving card instances: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to move card instances: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function removeInstances(Request $request, $id)
+    {
+        DB::beginTransaction();
+        
+        try {
+            $validated = $request->validate([
+                'quantity' => 'required|integer|min:1',
+                'location_id' => 'required|exists:mtg_locations,id',
+            ]);
+            
+            $card = MtgCard::findOrFail($id);
+            $scryfallId = $card->scryfall_id;
+            
+            // Get instance
+            $instance = MtgCardInstance::where('scryfall_id', $scryfallId)
+                ->where('location_id', $validated['location_id'])
+                ->firstOrFail();
+            
+            // Validate quantity
+            if ($instance->quantity < $validated['quantity']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Not enough cards at this location'
+                ], 422);
+            }
+            
+            // Decrement quantity (never delete the record)
+            $instance->quantity -= $validated['quantity'];
+            $instance->save();
+            
+            // Update card's updated_at timestamp
+            $card->touch();
+            
+            DB::commit();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Card instances removed successfully'
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error removing card instances: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to remove card instances: ' . $e->getMessage()
+            ], 500);
         }
     }
 

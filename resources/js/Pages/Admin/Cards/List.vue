@@ -16,8 +16,34 @@ const props = defineProps({
 // Modal state
 const showAddModal = ref(false)
 const showResultsModal = ref(false)
+const showDetailModal = ref(false)
+const showEditModal = ref(false)
+const showDeleteModal = ref(false)
 const isUpdatingLibrary = ref(false)
 const isSavingCard = ref(false)
+const isLoadingDetail = ref(false)
+const isMovingInstances = ref(false)
+const isRemovingInstances = ref(false)
+const isUpdatingCardData = ref(false)
+
+// JSON tab state
+const activeJsonTab = ref('parsed')
+
+// Selected card for detail view
+const selectedCard = ref(null)
+
+// Edit/Delete form data
+const moveForm = ref({
+  quantity: 1,
+  from_location_id: '',
+  to_location_id: ''
+})
+const removeForm = ref({
+  quantity: 1,
+  location_id: ''
+})
+const moveError = ref('')
+const removeError = ref('')
 
 // Set library results
 const libraryResults = ref({
@@ -62,6 +88,209 @@ const getCardTypeLine = (card) => {
   }
   // Otherwise display the type_line as is
   return card.type_line || 'N/A'
+}
+
+// Computed property for parsed JSON data (structured view)
+const parsedJsonData = computed(() => {
+  if (!selectedCard.value?.scryfall_json_raw) return null
+  
+  try {
+    const data = JSON.parse(selectedCard.value.scryfall_json_raw)
+    return data
+  } catch (e) {
+    return null
+  }
+})
+
+// Open card detail modal
+async function openDetailModal(cardId) {
+  showDetailModal.value = true
+  isLoadingDetail.value = true
+  selectedCard.value = null
+  
+  try {
+    const response = await fetch(`/admin/cards/${cardId}`)
+    const data = await response.json()
+    
+    if (response.ok) {
+      selectedCard.value = data
+    } else {
+      alert('Failed to load card details')
+      showDetailModal.value = false
+    }
+  } catch (error) {
+    console.error('Error loading card details:', error)
+    alert('Error loading card details')
+    showDetailModal.value = false
+  } finally {
+    isLoadingDetail.value = false
+  }
+}
+
+function closeDetailModal() {
+  showDetailModal.value = false
+  selectedCard.value = null
+  showEditModal.value = false
+  showDeleteModal.value = false
+  moveError.value = ''
+  removeError.value = ''
+  activeJsonTab.value = 'parsed' // Reset to default tab
+}
+
+function openEditModal() {
+  showEditModal.value = true
+  moveForm.value = {
+    quantity: 1,
+    from_location_id: selectedCard.value.instances[0]?.location_id || '',
+    to_location_id: ''
+  }
+  moveError.value = ''
+}
+
+function closeEditModal() {
+  showEditModal.value = false
+  moveError.value = ''
+}
+
+function openDeleteModal() {
+  showDeleteModal.value = true
+  removeForm.value = {
+    quantity: 1,
+    location_id: selectedCard.value.instances[0]?.location_id || ''
+  }
+  removeError.value = ''
+}
+
+function closeDeleteModal() {
+  showDeleteModal.value = false
+  removeError.value = ''
+}
+
+async function submitMoveInstances() {
+  moveError.value = ''
+  
+  if (!moveForm.value.quantity || moveForm.value.quantity < 1) {
+    moveError.value = 'Quantity must be at least 1'
+    return
+  }
+  
+  if (!moveForm.value.from_location_id) {
+    moveError.value = 'Please select a source location'
+    return
+  }
+  
+  if (!moveForm.value.to_location_id) {
+    moveError.value = 'Please select a destination location'
+    return
+  }
+  
+  if (moveForm.value.from_location_id === moveForm.value.to_location_id) {
+    moveError.value = 'Source and destination must be different'
+    return
+  }
+  
+  isMovingInstances.value = true
+  
+  try {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || ''
+    
+    const response = await fetch(`/admin/cards/${selectedCard.value.id}/move`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrfToken
+      },
+      body: JSON.stringify(moveForm.value)
+    })
+    
+    const data = await response.json()
+    
+    if (response.ok && data.success) {
+      alert(data.message)
+      closeEditModal()
+      closeDetailModal()
+      router.reload({ preserveScroll: true })
+    } else {
+      moveError.value = data.message || 'Failed to move card instances'
+    }
+  } catch (error) {
+    console.error('Error moving instances:', error)
+    moveError.value = 'Error moving card instances'
+  } finally {
+    isMovingInstances.value = false
+  }
+}
+
+async function submitRemoveInstances() {
+  removeError.value = ''
+  
+  if (!removeForm.value.quantity || removeForm.value.quantity < 1) {
+    removeError.value = 'Quantity must be at least 1'
+    return
+  }
+  
+  if (!removeForm.value.location_id) {
+    removeError.value = 'Please select a location'
+    return
+  }
+  
+  isRemovingInstances.value = true
+  
+  try {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || ''
+    
+    const response = await fetch(`/admin/cards/${selectedCard.value.id}/remove`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrfToken
+      },
+      body: JSON.stringify(removeForm.value)
+    })
+    
+    const data = await response.json()
+    
+    if (response.ok && data.success) {
+      alert(data.message)
+      closeDeleteModal()
+      closeDetailModal()
+      router.reload({ preserveScroll: true })
+    } else {
+      removeError.value = data.message || 'Failed to remove card instances'
+    }
+  } catch (error) {
+    console.error('Error removing instances:', error)
+    removeError.value = 'Error removing card instances'
+  } finally {
+    isRemovingInstances.value = false
+  }
+}
+
+async function updateCardData() {
+  if (!confirm('This will fetch the latest card data from Scryfall and update the card. Continue?')) {
+    return
+  }
+  
+  isUpdatingCardData.value = true
+  
+  router.post(`/admin/cards/${selectedCard.value.id}/update-data`, {}, {
+    preserveScroll: true,
+    onSuccess: (page) => {
+      isUpdatingCardData.value = false
+      const flash = page.props.flash
+      alert(flash?.success || 'Card data updated successfully')
+      // Reload the card details
+      openDetailModal(selectedCard.value.id)
+    },
+    onError: (errors) => {
+      isUpdatingCardData.value = false
+      console.error('Update failed:', errors)
+      alert(errors.message || 'Failed to update card data')
+    },
+    onFinish: () => {
+      isUpdatingCardData.value = false
+    }
+  })
 }
 
 // Computed property for pagination page numbers
@@ -287,7 +516,7 @@ function saveCardToLibrary() {
 <template>
   <AuthenticatedLayout>
     <Head title="Manage Cards" />
-    <div class="max-w-7xl mx-auto p-4">
+    <div class="max-w-7xl mx-auto p-4 relative">
       <div class="flex justify-between items-center mb-4">
         <h1 class="text-2xl font-bold text-gray-100">Manage Cards</h1>
         <div class="flex gap-2">
@@ -308,7 +537,8 @@ function saveCardToLibrary() {
           <div 
             v-for="card in props.cards.data" 
             :key="card.id" 
-            class="bg-gray-700 rounded-lg overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col p-4"
+            class="bg-gray-700 rounded-lg overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col p-4 cursor-pointer hover:bg-gray-650"
+            @click="openDetailModal(card.id)"
           >
             <!-- Card Name -->
             <h3 class="text-lg font-bold text-center mb-3 line-clamp-2">{{ card.name }}</h3>
@@ -324,9 +554,6 @@ function saveCardToLibrary() {
               />
               <div v-else class="text-gray-500 text-sm p-4 text-center">No Image</div>
             </div>
-            
-            <!-- Type Line -->
-            <p class="text-xs text-gray-400 text-center mb-3 line-clamp-2">{{ getCardTypeLine(card) }}</p>
             
             <!-- Layout & Language Table -->
             <table class="w-full text-xs mb-3 border-collapse">
@@ -442,10 +669,9 @@ function saveCardToLibrary() {
           Page {{ props.cards.current_page }} of {{ props.cards.last_page }}
         </div>
       </div>
-    </div>
 
-    <!-- Add Card Modal -->
-    <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeAddModal">
+      <!-- Add Card Modal -->
+      <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeAddModal">
       <div class="bg-gray-800 rounded-lg shadow-xl w-full mx-4 p-6 text-gray-100 max-h-[90vh] overflow-y-auto" :class="apiResponse ? 'max-w-4xl' : 'max-w-lg'">
         <div class="flex justify-between items-center mb-4">
           <h2 class="text-2xl font-bold">Lookup Card</h2>
@@ -667,6 +893,269 @@ function saveCardToLibrary() {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Card Detail Modal -->
+    <div v-if="showDetailModal" class="absolute inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeDetailModal">
+      <div class="bg-gray-800 rounded-lg shadow-xl w-full p-6 text-gray-100 max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-2xl font-bold">Card Details</h2>
+          <button @click="closeDetailModal" class="text-gray-400 hover:text-gray-200 text-2xl">&times;</button>
+        </div>
+        
+        <!-- Loading State -->
+        <div v-if="isLoadingDetail" class="flex items-center justify-center py-12">
+          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        </div>
+        
+        <!-- Card Details (Two Column Layout) -->
+        <div v-else-if="selectedCard" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Left Column: Card Info and Actions -->
+          <div class="space-y-4">
+            <!-- Card Name -->
+            <h3 class="text-2xl font-bold">{{ selectedCard.name }}</h3>
+            
+            <!-- Card Image -->
+            <div class="relative aspect-[5/7] bg-gray-900 flex items-center justify-center overflow-hidden rounded">
+              <img 
+                v-if="getCardImage(selectedCard)" 
+                :src="getCardImage(selectedCard)" 
+                :alt="selectedCard.name"
+                class="w-full h-full object-cover"
+              />
+              <div v-else class="text-gray-500 text-sm p-4 text-center">No Image</div>
+            </div>
+            
+            <!-- Metadata -->
+            <div class="space-y-2 text-sm">
+              <p><span class="font-semibold">Date Added:</span> {{ selectedCard.created_at }}</p>
+              <p><span class="font-semibold">Last Update:</span> {{ selectedCard.updated_at }}</p>
+            </div>
+            
+            <!-- Update Card Data Button -->
+            <div class="border-t border-gray-700 pt-4">
+              <button 
+                @click="updateCardData" 
+                :disabled="isUpdatingCardData"
+                class="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {{ isUpdatingCardData ? 'Updating...' : 'Update Card Data from Scryfall' }}
+              </button>
+            </div>
+            
+            <!-- Update Card Instance Actions -->
+            <div class="border-t border-gray-700 pt-4">
+              <h4 class="text-lg font-semibold mb-3">Update Card Instance</h4>
+              <div class="flex gap-3">
+                <button 
+                  @click="openEditModal" 
+                  class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+                >
+                  Edit - Move Locations
+                </button>
+                <button 
+                  @click="openDeleteModal" 
+                  class="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition"
+                >
+                  Delete - Remove from Library
+                </button>
+              </div>
+            </div>
+            
+            <!-- Current Instances -->
+            <div class="border-t border-gray-700 pt-4">
+              <h4 class="text-lg font-semibold mb-3">Current Locations</h4>
+              <table class="w-full text-sm border-collapse">
+                <thead>
+                  <tr class="border-b border-gray-600">
+                    <th class="py-2 px-2 text-left text-gray-300">Location</th>
+                    <th class="py-2 px-2 text-right text-gray-300">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="instance in selectedCard.instances" :key="instance.id" class="border-b border-gray-700">
+                    <td class="py-2 px-2 text-gray-400">{{ instance.location_name }}</td>
+                    <td class="py-2 px-2 text-right text-gray-200 font-semibold">{{ instance.quantity }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          <!-- Right Column: Scryfall JSON -->
+          <div class="space-y-4">
+            <div class="flex justify-between items-center">
+              <h4 class="text-lg font-semibold">Scryfall JSON Data</h4>
+              <div class="flex border border-gray-600 rounded-lg overflow-hidden">
+                <button 
+                  @click="activeJsonTab = 'parsed'"
+                  :class="[
+                    'px-4 py-1.5 text-sm font-medium transition-colors',
+                    activeJsonTab === 'parsed' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ]"
+                >
+                  Parsed
+                </button>
+                <button 
+                  @click="activeJsonTab = 'pretty'"
+                  :class="[
+                    'px-4 py-1.5 text-sm font-medium transition-colors border-l border-gray-600',
+                    activeJsonTab === 'pretty' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ]"
+                >
+                  Pretty Print
+                </button>
+                <button 
+                  @click="activeJsonTab = 'raw'"
+                  :class="[
+                    'px-4 py-1.5 text-sm font-medium transition-colors border-l border-gray-600',
+                    activeJsonTab === 'raw' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ]"
+                >
+                  Raw
+                </button>
+              </div>
+            </div>
+            <div class="bg-gray-900 rounded-lg p-4 overflow-auto max-h-[70vh]">
+              <!-- Parsed View: Structured key-value display -->
+              <div v-if="activeJsonTab === 'parsed' && parsedJsonData" class="space-y-3 text-sm">
+                <div v-for="(value, key) in parsedJsonData" :key="key" class="border-b border-gray-700 pb-2 last:border-0">
+                  <div class="flex gap-2">
+                    <span class="font-semibold text-blue-400 min-w-[150px]">{{ key }}:</span>
+                    <span v-if="typeof value === 'object' && value !== null" class="text-gray-300 font-mono text-xs">
+                      <pre class="whitespace-pre-wrap">{{ JSON.stringify(value, null, 2) }}</pre>
+                    </span>
+                    <span v-else-if="typeof value === 'boolean'" class="text-yellow-400">{{ value }}</span>
+                    <span v-else-if="typeof value === 'number'" class="text-green-400">{{ value }}</span>
+                    <span v-else class="text-gray-300">{{ value }}</span>
+                  </div>
+                </div>
+              </div>
+              <!-- Pretty Print View -->
+              <pre v-else-if="activeJsonTab === 'pretty'" class="text-xs text-gray-300 font-mono whitespace-pre-wrap">{{ selectedCard.scryfall_json }}</pre>
+              <!-- Raw View -->
+              <pre v-else class="text-xs text-gray-300 font-mono whitespace-pre-wrap break-all">{{ selectedCard.scryfall_json_raw }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Modal (Move Locations) -->
+    <div v-if="showEditModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeEditModal">
+      <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 p-6 text-gray-100">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-bold">Move Card Instances</h2>
+          <button @click="closeEditModal" class="text-gray-400 hover:text-gray-200 text-2xl">&times;</button>
+        </div>
+        
+        <form @submit.prevent="submitMoveInstances" class="space-y-4">
+          <div>
+            <label class="block font-semibold mb-1">How many card instances to move?</label>
+            <input 
+              v-model.number="moveForm.quantity" 
+              type="number" 
+              min="1"
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100" 
+              required 
+            />
+          </div>
+          
+          <div>
+            <label class="block font-semibold mb-1">From which location?</label>
+            <select 
+              v-model="moveForm.from_location_id" 
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100" 
+              required
+            >
+              <option value="">Select source location</option>
+              <option v-for="instance in selectedCard.instances" :key="instance.location_id" :value="instance.location_id">
+                {{ instance.location_name }} (Qty: {{ instance.quantity }})
+              </option>
+            </select>
+          </div>
+          
+          <div>
+            <label class="block font-semibold mb-1">To which location?</label>
+            <select 
+              v-model="moveForm.to_location_id" 
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100" 
+              required
+            >
+              <option value="">Select destination location</option>
+              <option v-for="location in props.locations" :key="location.id" :value="location.id">
+                {{ location.name }}
+              </option>
+            </select>
+          </div>
+          
+          <div v-if="moveError" class="text-red-500 text-sm">{{ moveError }}</div>
+          
+          <div class="flex justify-end gap-2 mt-6">
+            <button type="button" @click="closeEditModal" :disabled="isMovingInstances" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+              Cancel
+            </button>
+            <button type="submit" :disabled="isMovingInstances" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+              {{ isMovingInstances ? 'Moving...' : 'Move Instances' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Delete Modal (Remove from Library) -->
+    <div v-if="showDeleteModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeDeleteModal">
+      <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 p-6 text-gray-100">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-bold">Remove from Library</h2>
+          <button @click="closeDeleteModal" class="text-gray-400 hover:text-gray-200 text-2xl">&times;</button>
+        </div>
+        
+        <form @submit.prevent="submitRemoveInstances" class="space-y-4">
+          <div>
+            <label class="block font-semibold mb-1">From which location?</label>
+            <select 
+              v-model="removeForm.location_id" 
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-gray-100" 
+              required
+            >
+              <option value="">Select location</option>
+              <option v-for="instance in selectedCard.instances" :key="instance.location_id" :value="instance.location_id">
+                {{ instance.location_name }} (Qty: {{ instance.quantity }})
+              </option>
+            </select>
+          </div>
+          
+          <div>
+            <label class="block font-semibold mb-1">How many to remove?</label>
+            <input 
+              v-model.number="removeForm.quantity" 
+              type="number" 
+              min="1"
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-gray-100" 
+              required 
+            />
+          </div>
+          
+          <div v-if="removeError" class="text-red-500 text-sm">{{ removeError }}</div>
+          
+          <div class="flex justify-end gap-2 mt-6">
+            <button type="button" @click="closeDeleteModal" :disabled="isRemovingInstances" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+              Cancel
+            </button>
+            <button type="submit" :disabled="isRemovingInstances" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+              {{ isRemovingInstances ? 'Removing...' : 'Remove Instances' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
     </div>
   </AuthenticatedLayout>
 </template>
