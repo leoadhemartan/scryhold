@@ -343,6 +343,210 @@ class CardsController extends Controller
         }
     }
 
+    public function bulkStore(Request $request)
+    {
+        try {
+            // Validate input
+            $validated = $request->validate([
+                'entries' => 'required|string',
+                'location_id' => 'required|exists:mtg_locations,id',
+            ]);
+
+            $entriesText = $validated['entries'];
+            $locationId = $validated['location_id'];
+            
+            // Parse entries line by line
+            $lines = array_filter(array_map('trim', explode("\n", $entriesText)), function($line) {
+                return !empty($line);
+            });
+            
+            $totalProcessed = count($lines);
+            $successCount = 0;
+            $failedEntries = [];
+            $successfulCards = [];
+            
+            foreach ($lines as $lineNumber => $line) {
+                try {
+                    // Parse line: collection_number set_code language? quantity?
+                    $parts = preg_split('/\s+/', $line);
+                    
+                    if (count($parts) < 2) {
+                        $failedEntries[] = [
+                            'line' => $line,
+                            'reason' => 'Invalid format - expected at least 2 fields (collection number, set code)'
+                        ];
+                        continue;
+                    }
+                    
+                    $collectionNumber = $parts[0];
+                    $setCode = $parts[1];
+                    
+                    // Default language to 'en' if not provided or if third field is numeric (quantity)
+                    if (!isset($parts[2]) || is_numeric($parts[2])) {
+                        $language = 'en';
+                        $quantity = isset($parts[2]) && is_numeric($parts[2]) ? (int)$parts[2] : 1;
+                    } else {
+                        $language = $parts[2];
+                        $quantity = isset($parts[3]) && is_numeric($parts[3]) ? (int)$parts[3] : 1;
+                    }
+                    
+                    // Ensure quantity is at least 1
+                    if ($quantity < 1) {
+                        $quantity = 1;
+                    }
+                    
+                    // Call Scryfall API
+                    $response = Http::timeout(30)->get(
+                        "https://api.scryfall.com/cards/{$setCode}/{$collectionNumber}/{$language}"
+                    );
+                    
+                    if (!$response->successful()) {
+                        $errorMsg = 'Card not found';
+                        if ($response->status() === 404) {
+                            $errorMsg = 'Card not found in Scryfall API';
+                        } elseif ($response->status() === 429) {
+                            $errorMsg = 'Rate limit exceeded - please wait and try again';
+                        } else {
+                            $errorMsg = 'API error: ' . $response->status();
+                        }
+                        
+                        $failedEntries[] = [
+                            'line' => $line,
+                            'reason' => $errorMsg
+                        ];
+                        continue;
+                    }
+                    
+                    $scryfallData = $response->json();
+                    $scryfallId = $scryfallData['id'] ?? null;
+                    
+                    if (!$scryfallId) {
+                        $failedEntries[] = [
+                            'line' => $line,
+                            'reason' => 'Invalid card data - missing Scryfall ID'
+                        ];
+                        continue;
+                    }
+                    
+                    // Begin transaction for this card
+                    DB::beginTransaction();
+                    
+                    try {
+                        // Check if card exists in mtg_cards table
+                        $existingCard = MtgCard::where('scryfall_id', $scryfallId)->first();
+                        
+                        if (!$existingCard) {
+                            // Create new card
+                            $cardData = [
+                                'scryfall_id' => $scryfallId,
+                                'name' => $scryfallData['name'] ?? '',
+                                'layout' => $scryfallData['layout'] ?? 'normal',
+                                'lang' => $scryfallData['lang'] ?? 'en',
+                                'scryfall_json' => $scryfallData,
+                            ];
+                            
+                            // Handle image downloads and storage
+                            $imageResults = $this->processCardImages($scryfallData);
+                            $cardData = array_merge($cardData, $imageResults);
+                            
+                            // Process single-faced vs multi-faced cards
+                            if (!isset($scryfallData['card_faces']) || empty($scryfallData['card_faces'])) {
+                                // Single-faced card
+                                $cardData['type_line'] = $scryfallData['type_line'] ?? null;
+                                $cardData['mana_cost'] = $scryfallData['mana_cost'] ?? null;
+                                $cardData['oracle_text'] = $scryfallData['oracle_text'] ?? null;
+                            } else {
+                                // Multi-faced card
+                                $faces = $scryfallData['card_faces'];
+                                
+                                if (isset($faces[0])) {
+                                    $cardData['cfl_name'] = $faces[0]['name'] ?? null;
+                                    $cardData['cfl_mana_cost'] = $faces[0]['mana_cost'] ?? null;
+                                    $cardData['cfl_type_line'] = $faces[0]['type_line'] ?? null;
+                                    $cardData['cfl_oracle_text'] = $faces[0]['oracle_text'] ?? null;
+                                }
+                                
+                                if (isset($faces[1])) {
+                                    $cardData['cfr_name'] = $faces[1]['name'] ?? null;
+                                    $cardData['cfr_mana_cost'] = $faces[1]['mana_cost'] ?? null;
+                                    $cardData['cfr_type_line'] = $faces[1]['type_line'] ?? null;
+                                    $cardData['cfr_oracle_text'] = $faces[1]['oracle_text'] ?? null;
+                                }
+                            }
+                            
+                            MtgCard::create($cardData);
+                            Log::info("Bulk Add: Created new card {$scryfallId}");
+                        }
+                        
+                        // Check if card instance exists
+                        $existingInstance = MtgCardInstance::where('scryfall_id', $scryfallId)
+                            ->where('location_id', $locationId)
+                            ->first();
+                        
+                        if ($existingInstance) {
+                            // Increment existing quantity
+                            $existingInstance->quantity += $quantity;
+                            $existingInstance->save();
+                            Log::info("Bulk Add: Incremented quantity for {$scryfallId}, new quantity: {$existingInstance->quantity}");
+                        } else {
+                            // Create new instance
+                            MtgCardInstance::create([
+                                'scryfall_id' => $scryfallId,
+                                'location_id' => $locationId,
+                                'quantity' => $quantity,
+                            ]);
+                            Log::info("Bulk Add: Created new instance for {$scryfallId} with quantity {$quantity}");
+                        }
+                        
+                        DB::commit();
+                        $successCount++;
+                        
+                        // Track successful card addition
+                        $successfulCards[] = [
+                            'name' => $scryfallData['name'] ?? 'Unknown',
+                            'language' => $language,
+                            'quantity' => $quantity
+                        ];
+                        
+                    } catch (\Exception $e) {
+                        DB::rollBack();
+                        Log::error("Bulk Add: Database error for line '{$line}': " . $e->getMessage());
+                        $failedEntries[] = [
+                            'line' => $line,
+                            'reason' => 'Database error: ' . $e->getMessage()
+                        ];
+                    }
+                    
+                } catch (\Exception $e) {
+                    Log::error("Bulk Add: Error processing line '{$line}': " . $e->getMessage());
+                    $failedEntries[] = [
+                        'line' => $line,
+                        'reason' => 'Processing error: ' . $e->getMessage()
+                    ];
+                }
+            }
+            
+            // Return summary via session for Inertia
+            return back()->with('bulk_summary', [
+                'success' => true,
+                'total_processed' => $totalProcessed,
+                'success_count' => $successCount,
+                'failed_count' => count($failedEntries),
+                'failed_entries' => $failedEntries,
+                'successful_cards' => $successfulCards
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Bulk Add: Fatal error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return back()->withErrors([
+                'message' => 'Failed to process bulk add: ' . $e->getMessage()
+            ]);
+        }
+    }
+
     public function store(Request $request)
     {
         try {

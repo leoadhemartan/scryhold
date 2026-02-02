@@ -15,6 +15,8 @@ const props = defineProps({
 
 // Modal state
 const showAddModal = ref(false)
+const showBulkAddModal = ref(false)
+const showBulkSummaryModal = ref(false)
 const showResultsModal = ref(false)
 const showDetailModal = ref(false)
 const showEditModal = ref(false)
@@ -25,6 +27,7 @@ const isLoadingDetail = ref(false)
 const isMovingInstances = ref(false)
 const isRemovingInstances = ref(false)
 const isUpdatingCardData = ref(false)
+const isProcessingBulkAdd = ref(false)
 
 // JSON tab state
 const activeJsonTab = ref('parsed')
@@ -65,6 +68,20 @@ const formError = ref('')
 // API response for Card Data display
 const apiResponse = ref(null)
 const isLoadingCard = ref(false)
+
+// Bulk add form data
+const bulkAddForm = ref({
+  entries: '',
+  location_id: ''
+})
+const bulkAddSummary = ref({
+  total_processed: 0,
+  success_count: 0,
+  failed_count: 0,
+  failed_entries: [],
+  successful_cards: []
+})
+const bulkAddError = ref('')
 
 // Computed property for card image display
 const getCardImage = (card) => {
@@ -511,6 +528,90 @@ function saveCardToLibrary() {
     }
   })
 }
+
+// Bulk Add Functions
+function openBulkAddModal() {
+  showBulkAddModal.value = true
+  bulkAddForm.value = {
+    entries: '',
+    location_id: props.locations && props.locations.length > 0 ? props.locations[0].id : ''
+  }
+  bulkAddError.value = ''
+}
+
+function closeBulkAddModal() {
+  showBulkAddModal.value = false
+  bulkAddError.value = ''
+}
+
+function closeBulkSummaryModal() {
+  showBulkSummaryModal.value = false
+  // Refresh the page to show newly added cards
+  router.reload({ preserveScroll: true })
+}
+
+function submitBulkAdd() {
+  bulkAddError.value = ''
+  
+  // Validation
+  if (!bulkAddForm.value.entries.trim()) {
+    bulkAddError.value = 'Please enter at least one card entry'
+    return
+  }
+  
+  if (!bulkAddForm.value.location_id) {
+    bulkAddError.value = 'Please select a location'
+    return
+  }
+  
+  isProcessingBulkAdd.value = true
+  
+  router.post('/admin/cards/bulk-add', {
+    entries: bulkAddForm.value.entries,
+    location_id: bulkAddForm.value.location_id
+  }, {
+    preserveScroll: true,
+    onSuccess: (page) => {
+      isProcessingBulkAdd.value = false
+      
+      // Get bulk_summary from flash session
+      const flash = page.props.flash || {}
+      const summary = flash.bulk_summary
+      
+      if (summary && summary.success) {
+        bulkAddSummary.value = {
+          total_processed: summary.total_processed,
+          success_count: summary.success_count,
+          failed_count: summary.failed_count,
+          failed_entries: summary.failed_entries,
+          successful_cards: summary.successful_cards || []
+        }
+        
+        // Close bulk add modal and show summary modal
+        closeBulkAddModal()
+        showBulkSummaryModal.value = true
+      } else {
+        bulkAddError.value = 'Failed to process bulk add'
+      }
+    },
+    onError: (errors) => {
+      isProcessingBulkAdd.value = false
+      console.error('Bulk add failed:', errors)
+      
+      // Display error message
+      if (errors.message) {
+        bulkAddError.value = errors.message
+      } else if (Object.keys(errors).length > 0) {
+        bulkAddError.value = Object.values(errors)[0]
+      } else {
+        bulkAddError.value = 'Failed to process bulk add. Please try again.'
+      }
+    },
+    onFinish: () => {
+      isProcessingBulkAdd.value = false
+    }
+  })
+}
 </script>
 
 <template>
@@ -528,6 +629,7 @@ function saveCardToLibrary() {
             {{ isUpdatingLibrary ? 'Updating...' : 'Update Set Library' }}
           </button>
           <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" @click="openAddModal">Lookup Card</button>
+          <button class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" @click="openBulkAddModal">Bulk Add</button>
         </div>
       </div>
 
@@ -1154,6 +1256,188 @@ function saveCardToLibrary() {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Bulk Add Modal -->
+    <div v-if="showBulkAddModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeBulkAddModal">
+      <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl mx-4 p-6 text-gray-100 max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-2xl font-bold">Bulk Add Cards</h2>
+          <button @click="closeBulkAddModal" class="text-gray-400 hover:text-gray-200 text-2xl">&times;</button>
+        </div>
+        
+        <div class="space-y-4">
+          <!-- Instructions -->
+          <div class="bg-gray-700 p-4 rounded-lg text-sm space-y-2">
+            <p class="font-semibold text-blue-400">Entry Format:</p>
+            <p class="font-mono text-gray-300">CollectionNumber SetCode [Language] [Quantity]</p>
+            <p class="text-gray-400">Examples:</p>
+            <ul class="list-disc list-inside text-gray-400 space-y-1">
+              <li><span class="font-mono text-white">123 neo</span> - defaults to English (en), quantity 1</li>
+              <li><span class="font-mono text-white">123 neo 2</span> - defaults to English (en), quantity 2</li>
+              <li><span class="font-mono text-white">123 neo ja 2</span> - Japanese, quantity 2</li>
+            </ul>
+            <p class="text-gray-400 mt-2"><strong>Note:</strong> Language defaults to "en" (English) and Quantity defaults to 1 if omitted</p>
+          </div>
+          
+          <!-- Text Area for entries -->
+          <div>
+            <label class="block font-semibold mb-2">Card Entries (one per line)</label>
+            <textarea 
+              v-model="bulkAddForm.entries" 
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100 font-mono text-sm" 
+              rows="12"
+              placeholder="123 neo en 1&#10;045 m21 ja 2&#10;001 khm en"
+              required
+            ></textarea>
+          </div>
+          
+          <!-- Location Selector -->
+          <div>
+            <label class="block font-semibold mb-2">Destination Location</label>
+            <select 
+              v-model="bulkAddForm.location_id" 
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100" 
+              required
+            >
+              <option value="">Select a location</option>
+              <option v-for="location in props.locations" :key="location.id" :value="location.id">
+                {{ location.name }}
+              </option>
+            </select>
+          </div>
+          
+          <!-- Error Message -->
+          <div v-if="bulkAddError" class="text-red-500 text-sm bg-red-900/20 p-3 rounded-lg border border-red-500/30">
+            {{ bulkAddError }}
+          </div>
+          
+          <!-- Processing Indicator -->
+          <div v-if="isProcessingBulkAdd" class="bg-blue-900/20 p-4 rounded-lg border border-blue-500/30">
+            <div class="flex items-center gap-3">
+              <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+              <div class="text-blue-400 font-semibold">Processing entries...</div>
+            </div>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div class="flex justify-end gap-2 pt-4 border-t border-gray-700">
+            <button 
+              type="button" 
+              @click="closeBulkAddModal" 
+              :disabled="isProcessingBulkAdd"
+              class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button 
+              @click="submitBulkAdd" 
+              :disabled="isProcessingBulkAdd || !bulkAddForm.entries.trim() || !bulkAddForm.location_id"
+              class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {{ isProcessingBulkAdd ? 'Processing...' : 'Add To Library' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk Add Summary Modal -->
+    <div v-if="showBulkSummaryModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4" @click.self="closeBulkSummaryModal">
+      <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl mx-4 p-6 text-gray-100 max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-2xl font-bold">Bulk Add Summary</h2>
+          <button @click="closeBulkSummaryModal" class="text-gray-400 hover:text-gray-200 text-2xl">&times;</button>
+        </div>
+        
+        <div class="space-y-4">
+          <!-- Summary Stats -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-gray-700 p-4 rounded-lg text-center">
+              <div class="text-3xl font-bold text-blue-400">{{ bulkAddSummary.total_processed }}</div>
+              <div class="text-sm text-gray-400 mt-1">Total Processed</div>
+            </div>
+            <div class="bg-gray-700 p-4 rounded-lg text-center">
+              <div class="text-3xl font-bold text-green-400">{{ bulkAddSummary.success_count }}</div>
+              <div class="text-sm text-gray-400 mt-1">Successfully Added</div>
+            </div>
+            <div class="bg-gray-700 p-4 rounded-lg text-center">
+              <div class="text-3xl font-bold" :class="bulkAddSummary.failed_count > 0 ? 'text-red-400' : 'text-gray-400'">
+                {{ bulkAddSummary.failed_count }}
+              </div>
+              <div class="text-sm text-gray-400 mt-1">Failed Entries</div>
+            </div>
+          </div>
+          
+          <!-- Overall Result Message -->
+          <div 
+            class="p-4 rounded-lg text-center font-semibold"
+            :class="{
+              'bg-green-900/30 border border-green-500/30 text-green-400': bulkAddSummary.failed_count === 0 && bulkAddSummary.success_count > 0,
+              'bg-yellow-900/30 border border-yellow-500/30 text-yellow-400': bulkAddSummary.failed_count > 0 && bulkAddSummary.success_count > 0,
+              'bg-red-900/30 border border-red-500/30 text-red-400': bulkAddSummary.failed_count > 0 && bulkAddSummary.success_count === 0
+            }"
+          >
+            <template v-if="bulkAddSummary.failed_count === 0 && bulkAddSummary.success_count > 0">
+              ✓ All {{ bulkAddSummary.success_count }} cards were successfully added to your library!
+            </template>
+            <template v-else-if="bulkAddSummary.failed_count > 0 && bulkAddSummary.success_count > 0">
+              ⚠ {{ bulkAddSummary.success_count }} cards added successfully, but {{ bulkAddSummary.failed_count }} entries failed.
+            </template>
+            <template v-else-if="bulkAddSummary.failed_count > 0 && bulkAddSummary.success_count === 0">
+              ✗ No cards were added. All {{ bulkAddSummary.failed_count }} entries failed.
+            </template>
+          </div>
+          
+          <!-- Successfully Added Cards List -->
+          <div v-if="bulkAddSummary.successful_cards && bulkAddSummary.successful_cards.length > 0" class="bg-gray-700 p-4 rounded-lg">
+            <h3 class="text-lg font-semibold mb-3 text-green-400">Successfully Added Cards</h3>
+            <div class="max-h-96 overflow-y-auto space-y-2">
+              <div 
+                v-for="(card, index) in bulkAddSummary.successful_cards" 
+                :key="index" 
+                class="bg-gray-800 p-3 rounded border-l-4 border-green-500 flex justify-between items-center"
+              >
+                <div class="flex-1">
+                  <div class="font-semibold text-gray-200">{{ card.name }}</div>
+                  <div class="text-xs text-gray-400 mt-1">
+                    Language: <span class="text-blue-400">{{ card.language }}</span>
+                  </div>
+                </div>
+                <div class="text-right ml-4">
+                  <div class="text-sm text-gray-400">Qty</div>
+                  <div class="text-lg font-bold text-green-400">{{ card.quantity }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Failed Entries Details -->
+          <div v-if="bulkAddSummary.failed_entries && bulkAddSummary.failed_entries.length > 0" class="bg-gray-700 p-4 rounded-lg">
+            <h3 class="text-lg font-semibold mb-3 text-red-400">Failed Entries</h3>
+            <div class="max-h-96 overflow-y-auto space-y-3">
+              <div 
+                v-for="(failedEntry, index) in bulkAddSummary.failed_entries" 
+                :key="index" 
+                class="bg-gray-800 p-3 rounded border-l-4 border-red-500"
+              >
+                <div class="font-mono text-sm text-gray-300 mb-1">{{ failedEntry.line }}</div>
+                <div class="text-xs text-red-400">Reason: {{ failedEntry.reason }}</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Close Button -->
+          <div class="flex justify-end pt-4 border-t border-gray-700">
+            <button 
+              @click="closeBulkSummaryModal" 
+              class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       </div>
     </div>
     </div>

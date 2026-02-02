@@ -14,7 +14,17 @@ A modern web application for managing Magic: The Gathering card collections with
 - **Dashboard** (`/dashboard`) – Admin overview
 - **Manage Cards** (`/admin/cards`)
    - Paginated grid view of card collection (18 cards per page)
-   - Card lookup via Scryfall API (collection number, set code, language)
+   - **Card Lookup** - Single card lookup via Scryfall API (collection number, set code, language)
+   - **Bulk Add** - Add multiple cards at once with streamlined entry format:
+     - Line-based entry: `CollectionNumber SetCode [Language] [Quantity]`
+     - Language defaults to English ("en") when omitted
+     - Quantity defaults to 1 when omitted
+     - Example entries: `123 neo`, `045 m21 2`, `001 khm ja 3`
+     - Real-time processing with success/failure tracking
+     - Summary modal showing:
+       - Successfully added cards list (name, language, quantity)
+       - Failed entries with detailed error reasons
+       - Total processed, success count, and failure count
    - Location-based inventory management with quantity tracking
    - Visual card display with:
      - Card name (prominent header)
@@ -202,6 +212,13 @@ scryhold/
 
 ### Admin Card Management
 - Modal-based card lookup with Scryfall API integration
+- **Bulk Add Feature**: 
+  - Multi-line entry format for adding multiple cards efficiently
+  - Format: `CollectionNumber SetCode [Language] [Quantity]`
+  - Smart defaults: Language → "en", Quantity → 1
+  - Sequential processing with error handling (failed entries don't halt processing)
+  - Comprehensive summary showing successful additions and failures with reasons
+  - Supports all Scryfall languages
 - Supports 17 languages (English, Japanese, Spanish, French, German, etc.)
 - Displays card data with proper handling for:
   - Single-faced cards
@@ -276,10 +293,12 @@ scryhold/
 - **Base URL**: https://api.scryfall.com
 - **Sets Endpoint**: `/sets` - Fetches all MTG set data
 - **Cards Endpoint**: `/cards/:set/:number/:lang` - Fetches specific card by set, collector number, and language
+- **Bulk Add Support**: Sequential API calls with individual error handling per card
 - **Rate Limit**: 10 requests per second (handled automatically)
 - **Icon Format**: SVG files downloaded and stored locally
 - **Card Images**: Downloaded and stored locally in `/storage/app/public/front/` and `/storage/app/public/back/`
 - **Data Preservation**: Complete JSON response stored in database for data integrity
+- **Error Handling**: Graceful handling of 404 (not found), 429 (rate limit), and network timeouts
 
 ## Testing
 
